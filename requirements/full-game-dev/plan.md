@@ -1,0 +1,343 @@
+# Shadow Fight — 完整游戏开发计划
+
+## 目标
+
+实现策划文档中描述的完整 Roguelike 卡牌构筑游戏，可在抖音小游戏平台运行。验收标准：
+
+1. 玩家能完成一局完整的 10 层爬塔流程
+2. ATB 战斗系统可正确运行，所有状态效果（霜蚀/灼烧/毒药/诅咒/汲取）生效
+3. 卡组构筑循环可用（获取、移除、升级、调序）
+4. 残影 PVP 可用（至少 AI 残影可对战）
+5. 竖屏 UI 布局符合设计规范
+
+---
+
+## 整体架构
+
+```
+shadow-fight/
+├── assets/
+│   ├── scripts/
+│   │   ├── core/           # 纯逻辑层（不依赖引擎，可单元测试）
+│   │   │   ├── battle/     # ATB 战斗引擎
+│   │   │   ├── card/       # 卡牌系统
+│   │   │   ├── character/  # 角色属性系统
+│   │   │   ├── deck/       # 卡组管理
+│   │   │   ├── event/      # 事件系统
+│   │   │   ├── faction/    # 流派池系统
+│   │   │   ├── ghost/      # 残影 PVP
+│   │   │   ├── monster/    # 野怪系统
+│   │   │   ├── relic/      # 遗物系统
+│   │   │   ├── run/        # 单局状态管理（RunState）
+│   │   │   ├── shop/       # 商店系统
+│   │   │   └── season/     # 赛季系统
+│   │   ├── data/           # 静态数据定义（卡牌表、野怪表、遗物表、事件表）
+│   │   ├── ui/             # UI 组件脚本
+│   │   │   ├── battle/     # 战斗界面
+│   │   │   ├── deck/       # 卡组管理界面
+│   │   │   ├── shop/       # 商店界面
+│   │   │   ├── event/      # 事件界面
+│   │   │   ├── selection/  # 路线/残影选择界面
+│   │   │   ├── reward/     # 奖励选择界面
+│   │   │   └── common/     # 通用 UI 组件
+│   │   ├── managers/       # 全局管理器（场景切换、音频、存档）
+│   │   └── types/          # TypeScript 类型定义
+│   ├── scenes/             # 场景文件
+│   ├── prefabs/            # 预制体
+│   ├── textures/           # 图片资源
+│   ├── fonts/              # 字体
+│   └── audio/              # 音效
+├── docs/                   # 策划文档（已有）
+├── context/                # 知识库
+└── requirements/           # 需求追踪
+```
+
+**架构原则**：`core/` 层是纯 TypeScript 逻辑，不依赖 Cocos Creator API，可独立测试。`ui/` 层负责将 core 的状态映射到可视化。`data/` 层存放所有静态配置数据。
+
+---
+
+## 开发阶段
+
+### Phase 0：项目基础（预计 1-2 天）
+
+> **目标**：搭建 Cocos Creator 项目骨架和类型系统
+
+| # | 任务 | 产出 | 依赖 |
+|---|------|------|------|
+| 0.1 | 创建 Cocos Creator 项目 | 可运行的空项目 | 无 |
+| 0.2 | 建立目录结构 | 上述文件夹布局 | 0.1 |
+| 0.3 | 定义全部 TypeScript 类型 | `types/` 下所有接口和枚举 | 0.1 |
+| 0.4 | 实现随机数工具（种子随机） | `core/utils/random.ts` | 0.1 |
+| 0.5 | 实现基础状态管理框架 | `managers/GameManager.ts` | 0.1 |
+
+**类型定义清单**（来自策划文档）：
+
+- `Faction` 枚举（11 种：10 流派 + COMMON）
+- `CardRarity` 枚举（NORMAL / RARE / EPIC / LEGENDARY）
+- `CardType` 枚举（ATTACK / SKILL / POWER / CURSE）
+- `CardTag` 枚举（DETONATE / LIFESTEAL / DRAIN / FREEZE 等 9 种）
+- `PowerTrigger` 枚举（TURN_START / TURN_END / ON_PLAY_CARD 等 6 种）
+- `Attribute` 枚举（STR / CON / SPD / MANA）
+- `StatusType` 枚举（FROST / BURN / POISON）
+- `Card` 接口（完整卡牌数据结构，含标识/分类/战斗/掉落/升级/能力卡/诅咒卡字段）
+- `CardEffect` 接口（伤害/护甲/回复/状态/汲取/诅咒/特殊效果）
+- `EffectCondition` 接口（条件触发）
+- `PlayerBaseProperty` 接口（STR/CON/SPD/MANA）
+- `RuntimeProperty` 接口（HP/attack/speed/mana/armor + 状态效果层数）
+- `RunState` 接口（单局完整状态）
+- `Ghost` 接口（残影数据）
+- `Relic` 接口（遗物数据）
+- `MonsterTemplate` 接口（野怪模板）
+- `GameEvent` 接口（事件数据）
+- `ShopItem` 接口（商店商品）
+- `BattleState` 接口（战斗运行时状态）
+- `SeasonConfig` 接口（赛季配置）
+
+---
+
+### Phase 1：核心战斗引擎（预计 3-5 天）
+
+> **目标**：实现完整的 ATB 战斗系统，纯逻辑层，可通过日志验证正确性
+
+| # | 任务 | 产出 | 依赖 |
+|---|------|------|------|
+| 1.1 | 角色属性系统 | `core/character/` — 四维生成（40 点分配）、运行时属性计算 | Phase 0 |
+| 1.2 | 卡牌效果解析器 | `core/card/CardEffectResolver.ts` — 所有 CardEffect 类型的执行逻辑 | Phase 0 |
+| 1.3 | ATB 战斗引擎 | `core/battle/BattleEngine.ts` — tick 循环、行动槽、行动解析 | 1.1, 1.2 |
+| 1.4 | 伤害计算系统 | `core/battle/DamageCalculator.ts` — 基础伤害、修正、护甲结算 | 1.2 |
+| 1.5 | 状态效果系统 | `core/battle/StatusManager.ts` — 霜蚀/灼烧/毒药/诅咒/汲取 | 1.3 |
+| 1.6 | 周期结算系统 | `core/battle/CycleResolver.ts` — 100 tick 周期结算（毒伤、衰减、MP 回复、加时） | 1.3, 1.5 |
+| 1.7 | 战斗结束判定 | `core/battle/BattleEndChecker.ts` — 正常结束 + 超时机制 | 1.3 |
+| 1.8 | 卡组指针与循环 | `core/deck/DeckRunner.ts` — 有序卡组循环、MP 不足跳过、诅咒卡处理 | 1.2 |
+| 1.9 | 战斗初始化 | `core/battle/BattleInitializer.ts` — 遗物触发、临时 Buff、状态清零 | 1.3 |
+| 1.10 | 战斗日志系统 | `core/battle/BattleLogger.ts` — 记录每个 tick 的行动（调试 + 回放） | 1.3 |
+
+**关键验证点**：
+- SPD 10 vs SPD 7 在 100 tick 内行动比精确为 10:7
+- 霜蚀减速：24 层霜蚀 → SPD 8 角色冻结，每周期衰减 2 层后逐步解冻
+- 灼烧加成：火系卡牌伤害 + 目标灼烧层数
+- MP 不足时跳过卡牌，卡组指针仍前进
+- 同 tick 双方行动槽 ≥ 100 时，速度高者先手
+
+---
+
+### Phase 2：单局游戏流程（预计 3-4 天）
+
+> **目标**：实现一局完整的 10 层爬塔流程逻辑
+
+| # | 任务 | 产出 | 依赖 |
+|---|------|------|------|
+| 2.1 | RunState 管理器 | `core/run/RunManager.ts` — 创建/保存/恢复单局状态 | Phase 0 |
+| 2.2 | 流派池系统 | `core/faction/FactionPool.ts` — 随机抽 2 流派、限制卡牌获取范围 | 2.1 |
+| 2.3 | 层级推进 | `core/run/FloorManager.ts` — 10 层结构、难度曲线、节点流转 | 2.1 |
+| 2.4 | 事件系统框架 | `core/event/EventManager.ts` — 事件抽取（正面/中性/负面概率）、效果执行 | 2.3 |
+| 2.5 | 路线选择系统 | `core/run/RouteSelector.ts` — 精英/普通/未知事件三选一 + 赏金挑战 | 2.3 |
+| 2.6 | 野怪生成系统 | `core/monster/MonsterGenerator.ts` — 按层数生成属性/卡组/遗物 | 2.3 |
+| 2.7 | 商店系统 | `core/shop/ShopManager.ts` — 商品生成、购买、服务（移除/升级/调序） | 2.3 |
+| 2.8 | 遗物系统 | `core/relic/RelicManager.ts` — 获取、触发时机、效果执行 | Phase 1 |
+| 2.9 | 卡牌奖励生成 | `core/card/RewardGenerator.ts` — 战斗后 3 选 1 卡牌、品质概率 | 2.2 |
+| 2.10 | 战斗奖励结算 | `core/run/RewardSettlement.ts` — 金币/卡牌/遗物奖励分发 | 2.9, 2.8 |
+
+---
+
+### Phase 3：静态数据填充（预计 3-5 天）
+
+> **目标**：填充所有游戏内容数据——这是游戏"有没有东西玩"的关键
+
+| # | 任务 | 产出 | 依赖 |
+|---|------|------|------|
+| 3.1 | 通用卡牌设计（4-6 张） | `data/cards/common.ts` | Phase 0 |
+| 3.2 | 冰系卡牌设计（8-12 张） | `data/cards/ice.ts` | Phase 0 |
+| 3.3 | 火系卡牌设计（8-12 张） | `data/cards/fire.ts` | Phase 0 |
+| 3.4 | 毒系卡牌设计（8-12 张） | `data/cards/poison.ts` | Phase 0 |
+| 3.5 | 咒术师卡牌设计（8-12 张） | `data/cards/hex.ts` | Phase 0 |
+| 3.6 | 血族卡牌设计（8-12 张） | `data/cards/blood.ts` | Phase 0 |
+| 3.7 | 刺客卡牌设计（8-12 张） | `data/cards/assassin.ts` | Phase 0 |
+| 3.8 | 狂战士卡牌设计（8-12 张） | `data/cards/berserker.ts` | Phase 0 |
+| 3.9 | 守卫卡牌设计（8-12 张） | `data/cards/guardian.ts` | Phase 0 |
+| 3.10 | 武僧卡牌设计（8-12 张） | `data/cards/monk.ts` | Phase 0 |
+| 3.11 | 赌徒卡牌设计（8-12 张） | `data/cards/gambler.ts` | Phase 0 |
+| 3.12 | 诅咒卡设计（5-8 张） | `data/cards/curses.ts` | Phase 0 |
+| 3.13 | 遗物设计（30-50 个） | `data/relics.ts` | Phase 0 |
+| 3.14 | 事件设计（25-30 个） | `data/events.ts` | Phase 0 |
+| 3.15 | 野怪模板设计（每层 3-5 种） | `data/monsters.ts` | Phase 0 |
+| 3.16 | 冷启动 AI 残影（每层 2-3 个） | `data/ai-ghosts.ts` | Phase 0 |
+| 3.17 | 赌约池设计 | `data/wagers.ts` | Phase 0 |
+| 3.18 | 初始卡组配置 | `data/starter-deck.ts` | Phase 0 |
+
+**注意**：Phase 3 可与 Phase 1-2 并行推进，数据填充不依赖逻辑代码完成。
+
+---
+
+### Phase 4：战斗界面 UI（预计 4-5 天）
+
+> **目标**：实现完整的战斗观战体验
+
+| # | 任务 | 产出 | 依赖 |
+|---|------|------|------|
+| 4.1 | 战斗场景搭建 | 竖屏战斗 UI 布局（参照 ui-interaction.md §二） | Phase 0 |
+| 4.2 | HP/MP 条组件 | `ui/battle/HPBar.ts`, `ui/battle/MPBar.ts` | 4.1 |
+| 4.3 | 行动槽可视化 | `ui/battle/ActionGauge.ts` — 双方进度条 | 4.1 |
+| 4.4 | 卡牌出牌动画 | `ui/battle/CardPlayAnim.ts` — 卡牌翻面、效果文字 | 4.1 |
+| 4.5 | 状态效果图标 | `ui/battle/StatusIcons.ts` — 霜蚀/灼烧/毒药层数显示 | 4.1 |
+| 4.6 | 伤害数字飘字 | `ui/battle/DamagePopup.ts` | 4.1 |
+| 4.7 | 战斗日志面板 | `ui/battle/BattleLog.ts` — 可展开折叠 | 4.1 |
+| 4.8 | 玩家接下来 4 张预览 | `ui/battle/DeckPreview.ts` | 4.1 |
+| 4.9 | 加速/跳过按钮 | `ui/battle/BattleControls.ts` | 4.1 |
+| 4.10 | 战斗引擎与 UI 桥接 | `ui/battle/BattlePresenter.ts` — core 状态 → UI 更新 | Phase 1, 4.1-4.9 |
+| 4.11 | 速度变化反馈动画 | `ui/battle/SpeedChangeAnim.ts` | 4.3 |
+| 4.12 | 遗物图标栏 | `ui/battle/RelicBar.ts` | 4.1 |
+
+---
+
+### Phase 5：非战斗界面 UI（预计 5-7 天）
+
+> **目标**：实现所有非战斗场景的 UI
+
+| # | 任务 | 产出 | 依赖 |
+|---|------|------|------|
+| 5.1 | 开局界面（属性展示 + 流派池） | `ui/start/RunStartUI.ts` | Phase 2 |
+| 5.2 | 卡组管理界面（4 列网格 + 拖拽调序） | `ui/deck/DeckGridUI.ts` | Phase 2 |
+| 5.3 | 卡牌详情浮层 | `ui/common/CardDetailPopup.ts` | Phase 0 |
+| 5.4 | 卡牌奖励选择界面（3 选 1） | `ui/reward/CardRewardUI.ts` | 2.9 |
+| 5.5 | 路线选择界面（精英/普通/未知） | `ui/selection/RouteSelectUI.ts` | 2.5 |
+| 5.6 | 残影选择界面（3 选 1） | `ui/selection/GhostSelectUI.ts` | Phase 6 |
+| 5.7 | 商店界面（卡牌/药水/遗物/服务） | `ui/shop/ShopUI.ts` | 2.7 |
+| 5.8 | 事件界面（文本 + 选项） | `ui/event/EventUI.ts` | 2.4 |
+| 5.9 | 赌约选择界面（赌徒专属） | `ui/selection/WagerUI.ts` | Phase 2 |
+| 5.10 | 遗物详情浮层 | `ui/common/RelicDetailPopup.ts` | Phase 0 |
+| 5.11 | 战斗结算界面（胜利/失败） | `ui/battle/BattleResultUI.ts` | Phase 1 |
+| 5.12 | 通关/死亡结算界面 | `ui/run/RunEndUI.ts` | Phase 2 |
+| 5.13 | 场景切换管理 | `managers/SceneManager.ts` | 所有 UI |
+| 5.14 | 卡牌缩略图组件 | `ui/common/CardThumbnail.ts` | Phase 0 |
+| 5.15 | 通用确认弹窗 | `ui/common/ConfirmDialog.ts` | Phase 0 |
+| 5.16 | 层级进度 HUD | `ui/common/FloorHUD.ts` — 当前层/节点/HP/金币 | Phase 2 |
+
+---
+
+### Phase 6：残影 PVP 系统（预计 2-3 天）
+
+> **目标**：实现异步 PVP 的核心逻辑
+
+| # | 任务 | 产出 | 依赖 |
+|---|------|------|------|
+| 6.1 | 残影数据录制 | `core/ghost/GhostRecorder.ts` — 死亡时保存残影 | Phase 2 |
+| 6.2 | 残影匹配（本地版） | `core/ghost/GhostMatcher.ts` — 三选一抽取、难度分布、去重 | 6.1 |
+| 6.3 | 残影战斗适配 | 残影作为战斗对手的数据转换 | Phase 1, 6.1 |
+| 6.4 | 冷启动 AI 补位 | 残影不足时使用预设 AI | 3.16 |
+| 6.5 | 残影本地存储 | 使用 LocalStorage 暂存残影数据 | 6.1 |
+| 6.6 | 复仇名单 | `core/ghost/RevengeList.ts` | 6.1 |
+
+---
+
+### Phase 7：联调与闭环（预计 3-4 天）
+
+> **目标**：将所有系统串联成完整可玩的游戏
+
+| # | 任务 | 产出 | 依赖 |
+|---|------|------|------|
+| 7.1 | 完整单局流程联调 | 从开局到第 10 层通关/死亡的完整路径 | Phase 1-6 |
+| 7.2 | 存档/读档系统 | `managers/SaveManager.ts` — RunState 持久化 | Phase 2 |
+| 7.3 | 暂停/恢复机制 | 中途退出后恢复到上次节点 | 7.2 |
+| 7.4 | 卡牌升级功能联调 | 商店升级 → 费用 -1 或效果 +30% 的完整链路 | Phase 1-5 |
+| 7.5 | 遗物全链路联调 | 遗物获取 → 各触发时机 → 效果执行 | Phase 1-5 |
+| 7.6 | 10 流派完整对战测试 | 验证 45 种流派组合的基本可玩性 | Phase 1-3 |
+| 7.7 | 边界情况处理 | MP 枯竭连续跳过、冻结状态、双方同时死亡等 | Phase 1 |
+
+---
+
+### Phase 8：平台适配与社交（预计 2-3 天）
+
+> **目标**：适配抖音小游戏平台
+
+| # | 任务 | 产出 | 依赖 |
+|---|------|------|------|
+| 8.1 | 抖音小游戏 SDK 集成 | 登录、存档云端同步 | Phase 7 |
+| 8.2 | 安全区适配 | 顶部刘海 + 底部手势条 | Phase 4-5 |
+| 8.3 | 分享功能 | 通关/金卡分享卡片 | Phase 7 |
+| 8.4 | 好友系统对接 | 好友残影优先匹配 | Phase 6 |
+| 8.5 | 残影云端存储 | 服务端 GhostRecord 存取 | Phase 6 |
+| 8.6 | 排行榜 | 赛季排行（通关层数/速通/残影击杀） | Phase 7 |
+
+---
+
+### Phase 9：美术与打磨（预计 5-7 天）
+
+> **目标**：从可玩原型到有品质的产品
+
+| # | 任务 | 产出 | 依赖 |
+|---|------|------|------|
+| 9.1 | 卡牌美术（占位图 → 正式图） | 80-120 张卡面 | Phase 3 |
+| 9.2 | UI 美术资源 | 按钮、面板、图标、HP 条等 | Phase 4-5 |
+| 9.3 | 角色立绘 / 简易动画 | 战斗动画区素材 | Phase 4 |
+| 9.4 | 音效设计 | 出牌、伤害、状态效果、UI 交互 | Phase 4-5 |
+| 9.5 | BGM | 战斗/商店/事件场景音乐 | Phase 7 |
+| 9.6 | 过渡动画 | 场景切换、节点推进动效（≤ 300ms） | Phase 5 |
+| 9.7 | 震动反馈 | 卡组拖拽松手时的轻震动 | Phase 5 |
+
+---
+
+### Phase 10：数值平衡与测试（预计 3-5 天）
+
+> **目标**：确保游戏可玩且有趣
+
+| # | 任务 | 产出 | 依赖 |
+|---|------|------|------|
+| 10.1 | 属性公式平衡 | STR/CON/SPD/MANA 的价值曲线 | Phase 7 |
+| 10.2 | 卡牌数值调优 | 各品质/费用段的伤害/效果基准线 | Phase 7 |
+| 10.3 | 金币经济平衡 | 收入曲线 vs 商店物价 | Phase 7 |
+| 10.4 | 流派克制验证 | 45 种组合的胜率矩阵模拟 | Phase 7 |
+| 10.5 | 霜蚀/灼烧/毒药系数调优 | 参照 battle-base.md §11.2 | Phase 7 |
+| 10.6 | 自动化战斗模拟器 | 批量跑 AI 对局收集统计数据 | Phase 1 |
+| 10.7 | 性能优化 | DrawCall、内存、帧率优化 | Phase 7 |
+
+---
+
+## 里程碑
+
+| 里程碑 | 阶段 | 预计时间 | 可验收内容 |
+|--------|------|----------|------------|
+| **M0 — 项目骨架** | Phase 0 | 第 1-2 天 | 类型系统完整，项目可编译 |
+| **M1 — 战斗可跑** | Phase 1 | 第 3-7 天 | 两个预设角色能跑完一场 ATB 战斗（日志输出） |
+| **M2 — 单局可玩** | Phase 2+3 | 第 8-16 天 | 控制台中可走完 10 层流程（无 UI） |
+| **M3 — 战斗可看** | Phase 4 | 第 17-21 天 | 战斗过程有完整 UI 展示 |
+| **M4 — 全流程可玩** | Phase 5-7 | 第 22-35 天 | 有 UI 的完整单局体验 |
+| **M5 — 平台上线** | Phase 8-10 | 第 36-50 天 | 抖音小游戏可发布版本 |
+
+---
+
+## 优先级排序原则
+
+1. **核心循环优先**：先让战斗能跑（Phase 1），再让一局能玩（Phase 2），最后上 UI（Phase 4-5）
+2. **纯逻辑先行**：core 层不依赖引擎，可快速迭代和测试
+3. **数据可并行**：Phase 3 的内容填充可与 Phase 1-2 同时推进
+4. **MVP 思维**：每个 Phase 结束都有可验证的产出
+5. **延迟决策**：服务端、社交功能、美术资源可后置，先用占位资源
+
+---
+
+## 风险与待确认
+
+| 风险 | 影响 | 缓解方案 |
+|------|------|----------|
+| 卡牌数量巨大（80-120 张） | Phase 3 可能耗时超预期 | 先实现 3-5 个核心流派（冰/火/毒 + 通用），其余分批补充 |
+| ATB 战斗的 UI 表现力 | 自动战斗可能观感单调 | 投入足够的动效和反馈设计（Phase 9） |
+| 抖音小游戏包体限制 | 资源过大无法发布 | 图片压缩、动态加载、资源分包 |
+| 数值平衡工作量大 | 45 种流派组合难以手动测试 | 开发自动化模拟器（10.6）批量验证 |
+| 策划中标记"待设计"的内容 | Boss 战、成就系统、完整事件列表等尚未设计 | 按优先级逐步补充，不阻塞主流程 |
+
+---
+
+## 建议的开发顺序（首次迭代聚焦 MVP）
+
+如果时间有限，建议 **Phase 0 → 1 → 2（精简版）→ 3（核心 3 流派）→ 4 → 5（核心界面）→ 7（联调）** 作为首次可玩版本，其余后续迭代补充。
+
+精简版 MVP 的范围：
+- 3 个流派（冰 + 火 + 通用），其余 8 个流派后补
+- 5 层而非 10 层
+- 10 个遗物（而非 30-50 个）
+- 10 个事件（而非 25-30 个）
+- 用 AI 残影代替真实 PVP
+- 占位美术资源
+
+**预计 MVP 工期：15-20 天**

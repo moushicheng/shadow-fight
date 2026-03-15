@@ -36,11 +36,13 @@
 | 类型 | 值 | 说明 | 示例 |
 | --- | --- | --- | --- |
 | 攻击 | ATTACK | 以造成伤害为主要目的 | 普通攻击、火焰冲击、轻击 |
-| 防御 | DEFENSE | 以获取护甲/减伤为主要目的 | 铁壁 |
-| 技能 | SKILL | 功能性卡牌（增益/控制/回复/属性操作） | 聚气、魔力瓶、丢雪球 |
+| 技能 | SKILL | 一次性功能卡牌（增益/控制/回复/护甲/属性操作），打出即结算 | 聚气、魔力瓶、铁壁、丢雪球 |
+| 能力 | POWER | 打出后效果在本场战斗内**永久生效**，不进入弃牌堆 | 每回合回复 2 HP、受到攻击时反弹 3 伤害 |
 | 诅咒 | CURSE | 被塞入对手卡组的负面牌，轮到时强制使用 | 虚弱（费用 2 无效果） |
 
 > 一张卡只归属一个主类型。当功能混合时（如「吸力打击」既造伤害又汲取属性），按**主要设计意图**分类——吸力打击主要为了造伤害+汲取，归为 ATTACK。
+>
+> **能力卡 vs 技能卡**：关键区别在于效果是否持续。技能卡打出后立即结算（如获得 15 护甲），能力卡打出后效果挂载在角色身上直到战斗结束（如"每回合开始获得 3 护甲"）。防御类效果根据是否持续分别归入 SKILL 或 POWER。
 
 ---
 
@@ -239,7 +241,33 @@
 
 ---
 
-## 七、诅咒卡专属参数
+## 七、能力卡专属参数
+
+能力卡（POWER）打出后效果永久挂载，不进入弃牌堆。需要额外参数描述持续效果的行为：
+
+| 参数 | 字段名 | 类型 | 说明 |
+| --- | --- | --- | --- |
+| 触发时机 | power.trigger | enum | 持续效果的触发时机（见下表） |
+| 持续效果 | power.effect | object | 每次触发时执行的效果（复用 CardEffect 结构） |
+| 可叠加 | power.stackable | boolean | 再次打出同名能力卡时是否叠加效果，默认 false（重复打出无效） |
+| 最大层数 | power.maxStacks | number | 可叠加时的最大层数，默认 1 |
+
+触发时机：
+
+| 时机 | 值 | 说明 | 示例 |
+| --- | --- | --- | --- |
+| 回合开始 | TURN_START | 每回合开始时触发 | "每回合开始获得 3 护甲" |
+| 回合结束 | TURN_END | 每回合结束时触发 | "每回合结束回复 2 HP" |
+| 打出卡牌时 | ON_PLAY_CARD | 每次打出其他卡牌时触发 | "每打出一张攻击牌，额外造成 2 伤害" |
+| 受到伤害时 | ON_TAKE_DAMAGE | 被攻击时触发 | "受到攻击时反弹 3 伤害" |
+| 造成伤害时 | ON_DEAL_DAMAGE | 对敌方造成伤害时触发 | "造成伤害时回复 1 HP" |
+| 立即（被动） | IMMEDIATE | 打出时立即生效的被动状态修改 | "ATK 永久 +5" |
+
+> 能力卡打出后从卡组中移除（不进弃牌堆），因此一场战斗中同一张能力卡最多打出一次（除非有特殊机制将其回收）。
+
+---
+
+## 八、诅咒卡专属参数
 
 诅咒卡是特殊卡牌类型，由咒术师卡牌塞入对手卡组。需要额外参数：
 
@@ -251,7 +279,7 @@
 
 ---
 
-## 八、数据结构参考
+## 九、数据结构参考
 
 ```typescript
 type Card = {
@@ -264,7 +292,7 @@ type Card = {
 
   // 分类
   rarity: "NORMAL" | "RARE" | "EPIC" | "LEGENDARY";
-  cardType: "ATTACK" | "DEFENSE" | "SKILL" | "CURSE";
+  cardType: "ATTACK" | "SKILL" | "POWER" | "CURSE";
   tags: CardTag[];
 
   // 战斗
@@ -286,6 +314,14 @@ type Card = {
     costReduction: number;
     enhancedDescription: string;
     enhancedEffects: Partial<CardEffect>[];
+  };
+
+  // 能力卡专属
+  power?: {
+    trigger: PowerTrigger;
+    effect: CardEffect;
+    stackable: boolean;
+    maxStacks: number;
   };
 
   // 诅咒卡专属
@@ -369,12 +405,20 @@ type CardTag =
   | "CHARGE"
   | "UTILITY";
 
+type PowerTrigger =
+  | "TURN_START"
+  | "TURN_END"
+  | "ON_PLAY_CARD"
+  | "ON_TAKE_DAMAGE"
+  | "ON_DEAL_DAMAGE"
+  | "IMMEDIATE";
+
 type Attribute = "STR" | "CON" | "SPD" | "MANA";
 ```
 
 ---
 
-## 九、卡牌设计模板
+## 十、卡牌设计模板
 
 设计新卡牌时，按以下模板填写：
 
@@ -384,7 +428,7 @@ type Attribute = "STR" | "CON" | "SPD" | "MANA";
 - **ID**：{faction}_{snake_case}
 - **流派**：{流派}
 - **品质**：{白/蓝/紫/金}
-- **类型**：{攻击/防御/技能/诅咒}
+- **类型**：{攻击/技能/能力/诅咒}
 - **费用**：{0-5}
 - **标签**：{标签列表}
 - **出现层数**：{floorMin}-{floorMax}
@@ -418,7 +462,7 @@ type Attribute = "STR" | "CON" | "SPD" | "MANA";
 
 ---
 
-## 十、设计约束与平衡红线
+## 十一、设计约束与平衡红线
 
 | 约束 | 说明 |
 | --- | --- |
