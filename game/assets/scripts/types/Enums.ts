@@ -188,6 +188,31 @@ export enum CurseInsertPosition {
 }
 
 /**
+ * Buff 类型。
+ * 卡牌可施加 Buff 到自身或敌方，duration 控制持续行动次数（-1 = 永久）。
+ */
+export enum BuffType {
+    /** 减费 —— 降低出牌 MP 消耗 */
+    COST_REDUCTION = 'COST_REDUCTION',
+    /** 伤害加成 —— 出牌时额外伤害 */
+    DAMAGE_BONUS = 'DAMAGE_BONUS',
+    /** 伤害倍率 —— 出牌时伤害乘以 value */
+    DAMAGE_MULTIPLY = 'DAMAGE_MULTIPLY',
+    /** 护甲加成 —— 获得护甲时额外值 */
+    ARMOR_BONUS = 'ARMOR_BONUS',
+    /** 速度加成 —— 临时修改有效速度 */
+    SPEED_BONUS = 'SPEED_BONUS',
+    /** 攻击削弱 —— 降低攻击力（汲取 ATK 时挂给对方） */
+    ATK_DEBUFF = 'ATK_DEBUFF',
+    /** 速度削弱 —— 降低有效速度（汲取 SPD 时挂给对方） */
+    SPEED_DEBUFF = 'SPEED_DEBUFF',
+    /** 易伤 —— 受到伤害时倍率增加 */
+    VULNERABILITY = 'VULNERABILITY',
+    /** 格挡 —— 受到伤害时减少固定值 */
+    DAMAGE_REDUCTION = 'DAMAGE_REDUCTION',
+}
+
+/**
  * 可被汲取（血族）的战斗属性。
  * 汲取 N = 对方 -N，己方 +N，实际差值 2N。
  */

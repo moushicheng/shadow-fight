@@ -18,7 +18,7 @@ export interface PlayerBaseProperty {
  * 战斗运行时属性（单个战斗参与者）。
  * 每场战斗开始时从 PlayerBaseProperty 初始化，战斗过程中实时变化。
  *
- * effective_speed = baseSpeed + speedBuffs - floor(frostStacks / 3) - drainedSpd
+ * effective_speed = baseSpeed + sumBuff(SPEED_BONUS) - sumBuff(SPEED_DEBUFF) - floor(frostStacks / 3)
  * effective_speed ≤ 0 时进入冻结状态，行动槽停止增长。
  */
 export interface RuntimeCombatant {
@@ -30,8 +30,6 @@ export interface RuntimeCombatant {
     attack: number;
     /** 基础速度 —— 含事件/遗物的永久修改 */
     baseSpeed: number;
-    /** 战斗中临时速度加成（刺客加速牌等） */
-    speedBuffs: number;
     /** 最大 MP = round(MANA × 1.5) */
     maxMp: number;
     /** 当前 MP —— 每场战斗重置为满，每周期回复 1（不超上限） */
@@ -46,11 +44,6 @@ export interface RuntimeCombatant {
     /** 毒药层数 —— 每周期造成等量伤害（无视护甲），每周期衰减 1 层 */
     poisonStacks: number;
 
-    /** 被汲取的 ATK 总量（血族机制，战斗内持续） */
-    drainedAtk: number;
-    /** 被汲取的 SPD 总量（立即影响 ATB 行动槽填充速率） */
-    drainedSpd: number;
-
     /** ATB 行动槽 —— 每 tick += effectiveSpeed，≥ 100 时触发行动后 -= 100 */
     actionGauge: number;
     /** 卡组指针 —— 指向下一张要打的牌，循环到头后归零 */
@@ -58,6 +51,25 @@ export interface RuntimeCombatant {
 
     /** 已激活的能力卡效果列表 —— POWER 类卡牌打出后挂载于此 */
     activePowers: ActivePower[];
+
+    /** 当前生效的 Buff 列表 —— 每次出牌后 duration > 0 的 Buff 递减，归零移除 */
+    buffs: ActiveBuff[];
+}
+
+/**
+ * 运行时 Buff 实例。
+ * 由卡牌效果施加，挂载在角色身上。
+ * duration > 0 时每次出牌递减，归零自动移除；duration = -1 永久生效。
+ */
+export interface ActiveBuff {
+    /** Buff 类型（BuffType 的值） */
+    type: string;
+    /** 效果数值 */
+    value: number;
+    /** 剩余持续行动次数（-1 = 永久） */
+    remaining: number;
+    /** 来源卡牌 ID（用于 UI 展示和调试） */
+    sourceCardId: string;
 }
 
 /**

@@ -2,6 +2,7 @@ import {
     Faction, CardRarity, CardType, CardTag, PowerTrigger,
     Attribute, StatusType, EffectTarget, ConditionType,
     ConditionOperator, CurseInsertPosition, DrainAttribute,
+    BuffType,
 } from './Enums';
 
 // ─── 卡牌效果条件 ──────────────────────────────────────
@@ -98,6 +99,26 @@ export interface CurseEffect {
 }
 
 /**
+ * Buff 效果。
+ * 施加一个 Buff 到目标身上，持续 duration 次行动后自动移除。
+ * duration = -1 表示永久生效（直到战斗结束）。
+ *
+ * 示例 —— "下一张牌 0 费"：
+ * { type: COST_REDUCTION, value: 99, duration: 1 }
+ *
+ * 示例 —— "永久伤害 +3"：
+ * { type: DAMAGE_BONUS, value: 3, duration: -1 }
+ */
+export interface BuffEffect {
+    /** Buff 类型 */
+    type: BuffType;
+    /** 效果数值（减费量 / 加伤值 / 倍率等，含义由 type 决定） */
+    value: number;
+    /** 持续行动次数（每次出牌 -1，降到 0 时移除；-1 = 永久） */
+    duration: number;
+}
+
+/**
  * 特殊效果（无法用上述结构描述的机制）。
  * 如引爆灼烧(DETONATE)、投骰(DICE_ROLL)、属性转化(CONVERT_ATTRIBUTE)。
  */
@@ -132,6 +153,8 @@ export interface CardEffect {
     drain?: DrainEffect;
     /** 诅咒（咒术师） */
     curse?: CurseEffect;
+    /** Buff（减费/加伤/易伤等） */
+    buff?: BuffEffect;
     /** 特殊效果 */
     special?: SpecialEffect;
 }
