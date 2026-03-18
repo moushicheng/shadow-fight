@@ -1,3 +1,5 @@
+import { BuffType } from './Enums';
+
 /**
  * 四维基础属性值。
  * 每局开始时由种子随机数分配 40 总点到四维，SPD 下限 3。
@@ -62,8 +64,8 @@ export interface RuntimeCombatant {
  * duration > 0 时每次出牌递减，归零自动移除；duration = -1 永久生效。
  */
 export interface ActiveBuff {
-    /** Buff 类型（BuffType 的值） */
-    type: string;
+    /** Buff 类型 */
+    type: BuffType;
     /** 效果数值 */
     value: number;
     /** 剩余持续行动次数（-1 = 永久） */
