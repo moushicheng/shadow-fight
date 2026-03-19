@@ -4,7 +4,7 @@ import {
 } from '../../types/BattleTypes';
 import { CardDef, CardEffect, CardInstance } from '../../types/CardTypes';
 import { RuntimeCombatant } from '../../types/CharacterTypes';
-import { CardType, PowerTrigger, BuffType } from '../../types/Enums';
+import { CardType, PowerTrigger, BuffType, StatusType } from '../../types/Enums';
 import {
     getEffectiveSpeed, isFrozen, isAlive, spendMp, recoverMp,
     applyHpDamage,
@@ -13,6 +13,7 @@ import {
     CardEffectResolver, ResolveContext, EffectResult, EffectResultType,
 } from '../card/CardEffectResolver';
 import { SeededRandom } from '../utils/SeededRandom';
+import { StatusManager } from './StatusManager';
 
 // ─── 外部依赖接口 ────────────────────────────────────────
 
@@ -53,6 +54,7 @@ export class BattleEngine {
     private readonly config: BattleConfig;
     private readonly rng: SeededRandom;
     private readonly cardRegistry: CardRegistry;
+    private readonly statusManager: StatusManager;
 
     private cardsPlayedThisAction = 0;
     private mpSpentThisAction = 0;
@@ -67,6 +69,7 @@ export class BattleEngine {
         this.config = config;
         this.rng = new SeededRandom(seed);
         this.cardRegistry = cardRegistry;
+        this.statusManager = new StatusManager(config);
 
         this.state = {
             player: cloneFighter(player),
@@ -232,7 +235,7 @@ export class BattleEngine {
             `${fighter.name} 打出「${cardDef.name}」(${actualCost}MP)`,
             { cardId: cardDef.id, manaCost: actualCost });
 
-        const targetWasFrozen = isFrozen(enemy.combatant, this.config);
+        const targetWasFrozen = this.statusManager.isFrozen(enemy.combatant);
 
         const ctx: ResolveContext = {
             caster: combatant,
@@ -241,6 +244,7 @@ export class BattleEngine {
             cardDef,
             rng: this.rng,
             config: this.config,
+            statusManager: this.statusManager,
             cycleCount: this.state.cycleCount,
             cardsPlayedThisTurn: this.cardsPlayedThisAction,
             mpSpentThisTurn: this.mpSpentThisAction,
@@ -249,7 +253,7 @@ export class BattleEngine {
         const results = resolver.resolve(cardDef.effects);
         this.logEffectResults(side, results, fighter.name);
 
-        if (!targetWasFrozen && isFrozen(enemy.combatant, this.config)) {
+        if (!targetWasFrozen && this.statusManager.isFrozen(enemy.combatant)) {
             this.addLog(side, BattleLogType.FREEZE,
                 `${enemy.name} 被冻结`,
                 { frostStacks: enemy.combatant.frostStacks });
@@ -318,6 +322,7 @@ export class BattleEngine {
                 cardDef,
                 rng: this.rng,
                 config: this.config,
+                statusManager: this.statusManager,
                 cycleCount: this.state.cycleCount,
                 cardsPlayedThisTurn: this.cardsPlayedThisAction,
                 mpSpentThisTurn: this.mpSpentThisAction,
@@ -376,43 +381,30 @@ export class BattleEngine {
 
     private resolvePoisonDamage(side: 'player' | 'opponent'): void {
         const fighter = this.getFighter(side);
-        const combatant = fighter.combatant;
-        if (combatant.poisonStacks <= 0) return;
+        const result = this.statusManager.resolvePoisonDamage(fighter.combatant);
+        if (result.actualDamage <= 0) return;
 
-        const actual = applyHpDamage(combatant, combatant.poisonStacks);
         this.addLog('system', BattleLogType.DAMAGE,
-            `${fighter.name} 受到${actual}点毒药伤害(${combatant.poisonStacks}层)`,
-            { damage: actual, source: 'poison' });
+            `${fighter.name} 受到${result.actualDamage}点毒药伤害(${result.stacks}层)`,
+            { damage: result.actualDamage, source: 'poison' });
     }
 
     /** 霜蚀和毒药衰减。灼烧不自然衰减。 */
     private decayStatuses(side: 'player' | 'opponent'): void {
         const fighter = this.getFighter(side);
-        const combatant = fighter.combatant;
+        const decays = this.statusManager.resolveDecays(fighter.combatant);
 
-        if (combatant.frostStacks > 0) {
-            const wasFrozen = isFrozen(combatant, this.config);
-            const decay = Math.min(combatant.frostStacks, this.config.frostDecayPerCycle);
-            combatant.frostStacks -= decay;
+        for (const decay of decays) {
+            if (decay.decayed <= 0) continue;
 
             this.addLog('system', BattleLogType.STATUS_DECAY,
-                `${fighter.name} 霜蚀-${decay}(剩余${combatant.frostStacks})`,
-                { status: 'frost', decay, remaining: combatant.frostStacks });
+                `${fighter.name} ${statusLabel(decay.statusType)}-${decay.decayed}(剩余${decay.remaining})`,
+                { status: decay.statusType, decay: decay.decayed, remaining: decay.remaining });
 
-            if (wasFrozen && !isFrozen(combatant, this.config)) {
-                combatant.actionGauge = 0;
+            if (decay.unfreezeTransition) {
                 this.addLog('system', BattleLogType.UNFREEZE,
                     `${fighter.name} 解除冻结`, {});
             }
-        }
-
-        if (combatant.poisonStacks > 0) {
-            const decay = Math.min(combatant.poisonStacks, this.config.poisonDecayPerCycle);
-            combatant.poisonStacks -= decay;
-
-            this.addLog('system', BattleLogType.STATUS_DECAY,
-                `${fighter.name} 毒药-${decay}(剩余${combatant.poisonStacks})`,
-                { status: 'poison', decay, remaining: combatant.poisonStacks });
         }
     }
 
@@ -579,4 +571,16 @@ export class BattleEngine {
             }
         }
     }
+}
+
+// ─── 模块工具函数 ────────────────────────────────────────
+
+const STATUS_LABELS: Record<string, string> = {
+    [StatusType.FROST]: '霜蚀',
+    [StatusType.BURN]: '灼烧',
+    [StatusType.POISON]: '毒药',
+};
+
+function statusLabel(type: StatusType): string {
+    return STATUS_LABELS[type] ?? type;
 }

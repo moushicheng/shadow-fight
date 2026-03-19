@@ -104,8 +104,8 @@ shadow-fight/
 | 1.1 ✅ | 角色属性系统 | `core/character/` — 四维生成（40 点分配）、运行时属性计算 | Phase 0 |
 | 1.2 ✅ | 卡牌效果解析器 | `core/card/CardEffectResolver.ts` — 所有 CardEffect 类型的执行逻辑 | Phase 0 |
 | 1.3 ✅ | ATB 战斗引擎 | `core/battle/BattleEngine.ts` — tick 循环、行动槽、行动解析 | 1.1, 1.2 |
-| 1.4 | 伤害计算系统 | `core/battle/DamageCalculator.ts` — 基础伤害、修正、护甲结算 | 1.2 |
-| 1.5 | 状态效果系统 | `core/battle/StatusManager.ts` — 霜蚀/灼烧/毒药/诅咒/汲取 | 1.3 |
+| 1.4 ✅ | 伤害计算系统 | `core/battle/DamageCalculator.ts` — 基础伤害、修正、护甲结算 | 1.2 |
+| 1.5 ✅ | 状态效果系统 | `core/battle/StatusManager.ts` — 霜蚀/灼烧/毒药/诅咒/汲取 | 1.3 |
 | 1.6 | 周期结算系统 | `core/battle/CycleResolver.ts` — 100 tick 周期结算（毒伤、衰减、MP 回复、加时） | 1.3, 1.5 |
 | 1.7 | 战斗结束判定 | `core/battle/BattleEndChecker.ts` — 正常结束 + 超时机制 | 1.3 |
 | 1.8 | 卡组指针与循环 | `core/deck/DeckRunner.ts` — 有序卡组循环、MP 不足跳过、诅咒卡处理 | 1.2 |

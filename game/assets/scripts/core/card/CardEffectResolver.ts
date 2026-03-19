@@ -1,16 +1,15 @@
 import {
-    Attribute, StatusType, ConditionType, ConditionOperator,
-    CurseInsertPosition, DrainAttribute, BuffType, Faction, EffectTarget,
+    StatusType, ConditionType, ConditionOperator,
+    CurseInsertPosition, DrainAttribute, BuffType, EffectTarget,
 } from '../../types/Enums';
 import {
     CardEffect, EffectCondition, DamageEffect, CardDef, CardInstance,
 } from '../../types/CardTypes';
-import { RuntimeCombatant, ActiveBuff } from '../../types/CharacterTypes';
-import { BattleConfig, DEFAULT_BATTLE_CONFIG } from '../../types/BattleTypes';
-import {
-    getEffectiveAttack, getHpPercent, getLostHp,
-    applyHpDamage, healHp, recoverMp, gainArmor, absorbByArmor,
-} from '../character/EffectiveStats';
+import { RuntimeCombatant } from '../../types/CharacterTypes';
+import { BattleConfig } from '../../types/BattleTypes';
+import { getHpPercent, healHp, recoverMp, gainArmor } from '../character/EffectiveStats';
+import { DamageCalculator } from '../battle/DamageCalculator';
+import { StatusManager } from '../battle/StatusManager';
 import { SeededRandom } from '../utils/SeededRandom';
 
 // ─── 解析结果 ──────────────────────────────────────────
@@ -51,6 +50,8 @@ export interface ResolveContext {
     rng: SeededRandom;
     /** 战斗配置 */
     config: BattleConfig;
+    /** 状态效果管理器 */
+    statusManager: StatusManager;
     /** 当前周期数（用于条件判断） */
     cycleCount: number;
     /** 本回合已出牌数（用于条件判断） */
@@ -165,9 +166,9 @@ export class CardEffectResolver {
         switch (op) {
             case ConditionOperator.GTE: return actual >= threshold;
             case ConditionOperator.LTE: return actual <= threshold;
-            case ConditionOperator.GT:  return actual > threshold;
-            case ConditionOperator.LT:  return actual < threshold;
-            case ConditionOperator.EQ:  return actual === threshold;
+            case ConditionOperator.GT: return actual > threshold;
+            case ConditionOperator.LT: return actual < threshold;
+            case ConditionOperator.EQ: return actual === threshold;
             default: return false;
         }
     }
@@ -175,109 +176,21 @@ export class CardEffectResolver {
     // ─── 伤害解析 ──────────────────────────────────────
 
     private resolveDamage(dmg: DamageEffect, receiver: RuntimeCombatant): EffectResult {
-        let baseDamage = this.calcBaseDamage(dmg);
-
-        // 灼烧加成：仅火系卡牌享受，额外伤害 = 目标灼烧层数
-        if (this.ctx.cardDef.faction === Faction.FIRE) {
-            baseDamage += this.ctx.target.burnStacks;
-        }
-
-        const damageMult = 1.0 + CardEffectResolver.sumBuffValue(this.ctx.caster, BuffType.DAMAGE_MULTIPLY);
-        const damageBonus = CardEffectResolver.sumBuffValue(this.ctx.caster, BuffType.DAMAGE_BONUS);
-        let finalDamage = Math.floor(baseDamage * damageMult + damageBonus);
-        finalDamage = Math.max(0, finalDamage);
-
-        // 易伤（目标身上的 VULNERABILITY buff）
-        const vuln = CardEffectResolver.sumBuffValue(receiver, BuffType.VULNERABILITY);
-        if (vuln > 0) {
-            finalDamage = Math.floor(finalDamage * (1.0 + vuln));
-        }
-
-        // 减伤（目标身上的 DAMAGE_REDUCTION buff）
-        const reduction = CardEffectResolver.sumBuffValue(receiver, BuffType.DAMAGE_REDUCTION);
-        finalDamage = Math.max(0, finalDamage - reduction);
-
-        let actualHpDamage: number;
-        if (dmg.ignoreArmor) {
-            actualHpDamage = applyHpDamage(receiver, finalDamage);
-        } else {
-            const afterArmor = absorbByArmor(receiver, finalDamage);
-            actualHpDamage = applyHpDamage(receiver, afterArmor);
-        }
+        const formulaVars = DamageCalculator.buildFormulaVars(this.ctx.caster, this.ctx.target, {
+            mpSpentThisTurn: this.ctx.mpSpentThisTurn,
+        });
+        const baseDamage = DamageCalculator.evaluateBaseDamage(dmg, this.ctx.caster, formulaVars);
+        const result = DamageCalculator.applyDamage(
+            baseDamage, this.ctx.caster, receiver,
+            this.ctx.cardDef.faction, this.ctx.target.burnStacks,
+            dmg.ignoreArmor ?? false,
+        );
 
         return {
             type: EffectResultType.DAMAGE,
-            value: actualHpDamage,
+            value: result.actualHpDamage,
             detail: dmg.ignoreArmor ? 'ignore_armor' : undefined,
         };
-    }
-
-    private calcBaseDamage(dmg: DamageEffect): number {
-        let total = 0;
-
-        if (dmg.base != null) {
-            total += dmg.base;
-        }
-        if (dmg.scaling) {
-            const attrValue = CardEffectResolver.getAttributeValue(dmg.scaling.attribute, this.ctx.caster);
-            total += Math.floor(attrValue * dmg.scaling.multiplier);
-        }
-        if (dmg.formula) {
-            total += this.evaluateFormula(dmg.formula);
-        }
-
-        return total;
-    }
-
-    private static getAttributeValue(attr: Attribute, c: RuntimeCombatant): number {
-        switch (attr) {
-            case Attribute.STR: return getEffectiveAttack(c);
-            case Attribute.CON: return c.maxHp;
-            case Attribute.SPD: return c.baseSpeed;
-            case Attribute.MANA: return c.maxMp;
-            default: return 0;
-        }
-    }
-
-    /**
-     * 简易公式求值器。
-     * 支持预定义变量：lostHp, currentHp, maxHp, armor, currentMp, burnStacks 等。
-     * 仅支持 "变量 * 数字" 或 "变量" 的简单表达式。
-     */
-    private evaluateFormula(formula: string): number {
-        const { caster, target } = this.ctx;
-        const vars: Record<string, number> = {
-            lostHp: getLostHp(caster),
-            currentHp: caster.currentHp,
-            maxHp: caster.maxHp,
-            armor: caster.armor,
-            currentMp: caster.currentMp,
-            atk: getEffectiveAttack(caster),
-            spd: caster.baseSpeed,
-            burnStacks: target.burnStacks,
-            frostStacks: target.frostStacks,
-            poisonStacks: target.poisonStacks,
-            mpSpentThisTurn: this.ctx.mpSpentThisTurn,
-        };
-
-        const mulMatch = formula.match(/^\s*(\w+)\s*\*\s*([\d.]+)\s*$/);
-        if (mulMatch) {
-            const varName = mulMatch[1];
-            const multiplier = parseFloat(mulMatch[2]);
-            return Math.floor((vars[varName] ?? 0) * multiplier);
-        }
-        const mulMatch2 = formula.match(/^\s*([\d.]+)\s*\*\s*(\w+)\s*$/);
-        if (mulMatch2) {
-            const multiplier = parseFloat(mulMatch2[1]);
-            const varName = mulMatch2[2];
-            return Math.floor(multiplier * (vars[varName] ?? 0));
-        }
-        const trimmed = formula.trim();
-        if (trimmed in vars) {
-            return vars[trimmed];
-        }
-
-        return 0;
     }
 
     // ─── 护甲解析 ──────────────────────────────────────
@@ -288,7 +201,7 @@ export class CardEffectResolver {
         let amount = armorEff.gain ?? 0;
 
         if (armorEff.scaling) {
-            const attrValue = CardEffectResolver.getAttributeValue(armorEff.scaling.attribute, this.ctx.caster);
+            const attrValue = DamageCalculator.getAttributeValue(armorEff.scaling.attribute, this.ctx.caster);
             amount += Math.floor(attrValue * armorEff.scaling.multiplier);
         }
 
@@ -327,20 +240,11 @@ export class CardEffectResolver {
 
     private resolveStatus(effect: CardEffect, receiver: RuntimeCombatant): EffectResult {
         const statusEff = effect.status!;
-        switch (statusEff.type) {
-            case StatusType.FROST:
-                receiver.frostStacks += statusEff.stacks;
-                break;
-            case StatusType.BURN:
-                receiver.burnStacks += statusEff.stacks;
-                break;
-            case StatusType.POISON:
-                receiver.poisonStacks += statusEff.stacks;
-                break;
-        }
+        const result = this.ctx.statusManager.applyStatus(receiver, statusEff.type, statusEff.stacks);
+
         return {
             type: EffectResultType.STATUS_APPLY,
-            value: statusEff.stacks,
+            value: result.stacksApplied,
             detail: statusEff.type,
         };
     }
@@ -447,12 +351,8 @@ export class CardEffectResolver {
         switch (specialEff.type) {
             case 'DETONATE': {
                 const multiplier = (specialEff.params['multiplier'] as number) ?? 1.5;
-                const stacks = target.burnStacks;
-                target.burnStacks = 0;
-                const damage = Math.floor(stacks * multiplier);
-                const afterArmor = absorbByArmor(target, damage);
-                const actualDmg = applyHpDamage(target, afterArmor);
-                return { type: EffectResultType.SPECIAL, value: actualDmg, detail: 'DETONATE' };
+                const result = this.ctx.statusManager.detonate(target, multiplier);
+                return { type: EffectResultType.SPECIAL, value: result.actualHpDamage, detail: 'DETONATE' };
             }
 
             case 'CONVERT_ATTRIBUTE': {
