@@ -59,7 +59,7 @@ export class BattleEngine {
 
     /**
      * 简单构造：直接用传入的 Fighter 数据创建战斗（深拷贝）。
-     * 不执行遗物触发、临时 Buff 应用、诅咒卡移除等初始化流程。
+     * 不执行遗物触发、临时 Buff 应用等初始化流程。
      * 适用于测试和已手动初始化的场景。
      */
     constructor(
@@ -123,10 +123,9 @@ export class BattleEngine {
      * 完整初始化模式：经 BattleInitializer 执行战斗开始流程后创建引擎。
      *
      * 包含完整的初始化流程：
-     * 1. 深拷贝 + 状态清零
-     * 2. 移除诅咒卡
-     * 3. 应用临时 Buff（事件/赌约）
-     * 4. 触发 BATTLE_START 遗物
+     * 1. 深拷贝双方数据
+     * 2. 应用临时 Buff（事件/赌约）
+     * 3. 触发 BATTLE_START 遗物
      *
      * @see battle-base.md §四 战斗初始化
      */
@@ -137,7 +136,7 @@ export class BattleEngine {
         config: BattleConfig = DEFAULT_BATTLE_CONFIG,
         seed: number = Date.now(),
     ): BattleEngine {
-        const initializer = new BattleInitializer(cardRegistry, relicLookup);
+        const initializer = new BattleInitializer(relicLookup);
         const { state } = initializer.initialize(setup);
         return BattleEngine.fromState(state, cardRegistry, config, seed);
     }

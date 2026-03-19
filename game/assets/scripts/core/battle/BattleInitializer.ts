@@ -1,21 +1,15 @@
 import {
-    BattleState, BattleFighter, BattleConfig, BattleLogEntry,
+    BattleState, BattleFighter, BattleLogEntry,
     BattleLogType,
 } from '../../types/BattleTypes';
-import { CardInstance } from '../../types/CardTypes';
-import { RuntimeCombatant, ActiveBuff } from '../../types/CharacterTypes';
+import { RuntimeCombatant } from '../../types/CharacterTypes';
 import { RelicDef, RelicCustomEffect } from '../../types/RelicTypes';
-import { TempBuff, TempBuffEffect } from '../../types/RunTypes';
-import { CardType, RelicTrigger, BuffType, EffectTarget } from '../../types/Enums';
+import { TempBuff } from '../../types/RunTypes';
+import { RelicTrigger, BuffType } from '../../types/Enums';
 import { CardEffect } from '../../types/CardTypes';
 import { gainArmor, healHp } from '../character/EffectiveStats';
 
 // ─── 外部依赖接口 ────────────────────────────────────────
-
-/** 卡牌定义查询 */
-export interface CardDefLookup {
-    getCardDef(defId: string): { cardType: string; forcePlay?: boolean } | undefined;
-}
 
 /** 遗物定义查询 */
 export interface RelicDefLookup {
@@ -51,24 +45,25 @@ export interface InitializedBattle {
 /**
  * 战斗初始化器。
  *
- * 按 battle-base.md §四 的流程准备战斗状态：
+ * 按 battle-base.md §4.1 的流程准备战斗状态：
  * 1. 深拷贝双方数据
- * 2. 清零战斗内状态（护甲/状态效果/Buff/行动槽/卡组指针）
- * 3. 从卡组移除诅咒卡
- * 4. 应用临时 Buff（事件/赌约）
- * 5. 触发遗物 BATTLE_START 效果（先玩家后对手）
- * 6. 构建 BattleState
+ * 2. 应用临时 Buff（事件/赌约）+ 触发遗物 BATTLE_START 效果
+ * 3. 构建 BattleState
+ *
+ * 无需清零战斗瞬态：CombatantFactory 创建时所有瞬态字段（护甲/状态/Buff/
+ * 行动槽/卡组指针/MP）已是初始值，且战斗只操作克隆体，不会污染原始数据。
+ *
+ * 卡组保持原样（含诅咒卡）——战斗操作的是克隆卡组，不影响原始卡组。
+ * 诅咒卡可能来自负面事件，属于持久惩罚，不应在战斗前移除。
  *
  * 不依赖引擎 API，纯逻辑可测试。
  *
  * @see battle-base.md §四 战斗初始化
  */
 export class BattleInitializer {
-    private readonly cardLookup: CardDefLookup;
     private readonly relicLookup: RelicDefLookup;
 
-    constructor(cardLookup: CardDefLookup, relicLookup: RelicDefLookup) {
-        this.cardLookup = cardLookup;
+    constructor(relicLookup: RelicDefLookup) {
         this.relicLookup = relicLookup;
     }
 
@@ -80,27 +75,11 @@ export class BattleInitializer {
     initialize(setup: BattleSetup): InitializedBattle {
         const log: BattleLogEntry[] = [];
 
-        // 1. 深拷贝双方数据
+        // 1. 深拷贝双方数据（战斗全程操作克隆体，原始数据不受影响）
         const player = cloneFighter(setup.player);
         const opponent = cloneFighter(setup.opponent);
 
-        // 2. 清零战斗内状态
-        this.resetCombatState(player.combatant);
-        this.resetCombatState(opponent.combatant);
-
-        // 3. 移除诅咒卡
-        const playerCursesRemoved = this.removeCurseCards(player.deck);
-        const opponentCursesRemoved = this.removeCurseCards(opponent.deck);
-        if (playerCursesRemoved > 0) {
-            log.push(makeLogEntry('system', BattleLogType.RELIC_TRIGGER,
-                `${player.name} 卡组中${playerCursesRemoved}张诅咒卡已移除`));
-        }
-        if (opponentCursesRemoved > 0) {
-            log.push(makeLogEntry('system', BattleLogType.RELIC_TRIGGER,
-                `${opponent.name} 卡组中${opponentCursesRemoved}张诅咒卡已移除`));
-        }
-
-        // 4. 应用临时 Buff
+        // 2. 应用临时 Buff
         if (setup.playerTempBuffs) {
             for (const tb of setup.playerTempBuffs) {
                 this.applyTempBuff(player, tb, 'player', log);
@@ -112,11 +91,11 @@ export class BattleInitializer {
             }
         }
 
-        // 5. 触发 BATTLE_START 遗物（先玩家后对手）
+        // 3. 触发 BATTLE_START 遗物（先玩家后对手）
         this.triggerBattleStartRelics(player, 'player', log);
         this.triggerBattleStartRelics(opponent, 'opponent', log);
 
-        // 6. 构建 BattleState
+        // 4. 构建 BattleState
         const state: BattleState = {
             player,
             opponent,
@@ -128,53 +107,6 @@ export class BattleInitializer {
         };
 
         return { state, initLog: log };
-    }
-
-    // ─── 状态清零 ────────────────────────────────────────
-
-    /**
-     * 重置战斗运行时状态。
-     *
-     * 清零项目：
-     * - 护甲 = 0
-     * - 霜蚀/灼烧/毒药 = 0
-     * - 行动槽 = 0
-     * - 卡组指针 = 0
-     * - 已激活能力卡清空
-     * - Buff 清空（汲取效果也随之清零）
-     *
-     * HP/MP 保持当前值（CombatantFactory 创建时已是满值）。
-     */
-    private resetCombatState(c: RuntimeCombatant): void {
-        c.armor = 0;
-        c.frostStacks = 0;
-        c.burnStacks = 0;
-        c.poisonStacks = 0;
-        c.actionGauge = 0;
-        c.deckIndex = 0;
-        c.activePowers = [];
-        c.buffs = [];
-        // MP 重置为满（每场战斗满蓝开局）
-        c.currentMp = c.maxMp;
-    }
-
-    // ─── 诅咒卡移除 ──────────────────────────────────────
-
-    /**
-     * 从卡组中移除所有诅咒卡。
-     * 战斗开始时诅咒卡不应存在于卡组中——它们只在战斗中被对手塞入。
-     * 返回移除的数量。
-     */
-    private removeCurseCards(deck: CardInstance[]): number {
-        let removed = 0;
-        for (let i = deck.length - 1; i >= 0; i--) {
-            const def = this.cardLookup.getCardDef(deck[i].defId);
-            if (def && def.cardType === CardType.CURSE) {
-                deck.splice(i, 1);
-                removed++;
-            }
-        }
-        return removed;
     }
 
     // ─── 临时 Buff 应用 ──────────────────────────────────
