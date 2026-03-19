@@ -1,40 +1,30 @@
 import {
     BattleState, BattleFighter, BattleConfig, DEFAULT_BATTLE_CONFIG,
-    BattleLogType,
 } from '../../types/BattleTypes';
 import { CardDef, CardEffect, CardInstance } from '../../types/CardTypes';
 import { RuntimeCombatant } from '../../types/CharacterTypes';
-import { CardType, PowerTrigger, BuffType, StatusType } from '../../types/Enums';
+import { CardType, PowerTrigger } from '../../types/Enums';
 import {
-    getEffectiveSpeed, isFrozen, isAlive, spendMp, recoverMp,
-    applyHpDamage,
+    getEffectiveSpeed, isFrozen, spendMp,
 } from '../character/EffectiveStats';
 import {
-    CardEffectResolver, ResolveContext, EffectResult, EffectResultType,
+    CardEffectResolver, ResolveContext,
 } from '../card/CardEffectResolver';
 import { SeededRandom } from '../utils/SeededRandom';
 import { StatusManager } from './StatusManager';
+import { CycleResolver } from './CycleResolver';
+import { BattleEndChecker, BattleEndReason } from './BattleEndChecker';
+import { DeckRunner, DeckActionType } from '../deck/DeckRunner';
+import {
+    BattleInitializer, BattleSetup, RelicDefLookup,
+} from './BattleInitializer';
+import { BattleLogger } from './BattleLogger';
 
 // ─── 外部依赖接口 ────────────────────────────────────────
 
 /** 卡牌定义查询接口，由外部提供（如静态数据表） */
 export interface CardRegistry {
     getCardDef(defId: string): CardDef | undefined;
-}
-
-// ─── 工具函数 ────────────────────────────────────────────
-
-function cloneFighter(f: BattleFighter): BattleFighter {
-    return {
-        name: f.name,
-        combatant: {
-            ...f.combatant,
-            activePowers: f.combatant.activePowers.map(p => ({ ...p })),
-            buffs: f.combatant.buffs.map(b => ({ ...b })),
-        },
-        deck: f.deck.map(c => ({ ...c })),
-        relics: [...f.relics],
-    };
 }
 
 // ─── 战斗引擎 ────────────────────────────────────────────
@@ -47,6 +37,10 @@ function cloneFighter(f: BattleFighter): BattleFighter {
  *
  * 引擎是纯逻辑层，不依赖引擎 API。UI 层通过 getState() 读取状态渲染画面。
  *
+ * 创建方式：
+ * - `new BattleEngine(player, opponent, ...)` — 简单模式，跳过初始化流程（测试用）
+ * - `BattleEngine.createWithSetup(setup, ...)` — 完整模式，经 BattleInitializer 处理遗物/Buff/清零
+ *
  * @see battle-base.md §二 ATB 系统
  */
 export class BattleEngine {
@@ -55,10 +49,19 @@ export class BattleEngine {
     private readonly rng: SeededRandom;
     private readonly cardRegistry: CardRegistry;
     private readonly statusManager: StatusManager;
+    private readonly cycleResolver: CycleResolver;
+    private readonly endChecker: BattleEndChecker;
+    private readonly deckRunner: DeckRunner;
+    private readonly logger: BattleLogger;
 
     private cardsPlayedThisAction = 0;
     private mpSpentThisAction = 0;
 
+    /**
+     * 简单构造：直接用传入的 Fighter 数据创建战斗（深拷贝）。
+     * 不执行遗物触发、临时 Buff 应用、诅咒卡移除等初始化流程。
+     * 适用于测试和已手动初始化的场景。
+     */
     constructor(
         player: BattleFighter,
         opponent: BattleFighter,
@@ -70,6 +73,9 @@ export class BattleEngine {
         this.rng = new SeededRandom(seed);
         this.cardRegistry = cardRegistry;
         this.statusManager = new StatusManager(config);
+        this.cycleResolver = new CycleResolver(this.statusManager, config);
+        this.endChecker = new BattleEndChecker(config);
+        this.deckRunner = new DeckRunner(cardRegistry);
 
         this.state = {
             player: cloneFighter(player),
@@ -80,6 +86,60 @@ export class BattleEngine {
             winner: null,
             log: [],
         };
+        this.logger = new BattleLogger(this.state.log);
+    }
+
+    /**
+     * 从已初始化的 BattleState 创建引擎（私有）。
+     * 由静态工厂方法 createWithSetup 调用。
+     */
+    private static fromState(
+        state: BattleState,
+        cardRegistry: CardRegistry,
+        config: BattleConfig,
+        seed: number,
+    ): BattleEngine {
+        const engine = Object.create(BattleEngine.prototype) as BattleEngine;
+
+        // 手动赋值 readonly 字段（绕过 constructor）
+        (engine as any).config = config;
+        (engine as any).rng = new SeededRandom(seed);
+        (engine as any).cardRegistry = cardRegistry;
+        (engine as any).statusManager = new StatusManager(config);
+        (engine as any).cycleResolver = new CycleResolver(
+            (engine as any).statusManager, config,
+        );
+        (engine as any).endChecker = new BattleEndChecker(config);
+        (engine as any).deckRunner = new DeckRunner(cardRegistry);
+        (engine as any).state = state;
+        (engine as any).logger = new BattleLogger(state.log);
+        (engine as any).cardsPlayedThisAction = 0;
+        (engine as any).mpSpentThisAction = 0;
+
+        return engine;
+    }
+
+    /**
+     * 完整初始化模式：经 BattleInitializer 执行战斗开始流程后创建引擎。
+     *
+     * 包含完整的初始化流程：
+     * 1. 深拷贝 + 状态清零
+     * 2. 移除诅咒卡
+     * 3. 应用临时 Buff（事件/赌约）
+     * 4. 触发 BATTLE_START 遗物
+     *
+     * @see battle-base.md §四 战斗初始化
+     */
+    static createWithSetup(
+        setup: BattleSetup,
+        cardRegistry: CardRegistry,
+        relicLookup: RelicDefLookup,
+        config: BattleConfig = DEFAULT_BATTLE_CONFIG,
+        seed: number = Date.now(),
+    ): BattleEngine {
+        const initializer = new BattleInitializer(cardRegistry, relicLookup);
+        const { state } = initializer.initialize(setup);
+        return BattleEngine.fromState(state, cardRegistry, config, seed);
     }
 
     getState(): Readonly<BattleState> {
@@ -91,6 +151,7 @@ export class BattleEngine {
         if (this.state.isFinished) return true;
 
         this.state.tickCount++;
+        this.logger.setTime(this.state.tickCount, this.state.cycleCount);
 
         this.fillGauges();
 
@@ -115,7 +176,7 @@ export class BattleEngine {
             this.runTick();
         }
         if (!this.state.isFinished) {
-            this.endBattle('draw');
+            this.applyBattleEnd('draw', BattleEndReason.TICK_LIMIT);
         }
         return this.state;
     }
@@ -185,7 +246,7 @@ export class BattleEngine {
     }
 
     /**
-     * 处理当前卡组指针位置的卡牌：判定 MP → 出牌/跳过 → 处理 POWER/CURSE 特殊逻辑 → 推进指针。
+     * 处理当前卡组指针位置的卡牌：委托 DeckRunner 解析动作 → 出牌/跳过 → 推进指针。
      */
     private processCard(side: 'player' | 'opponent'): void {
         const fighter = this.getFighter(side);
@@ -193,25 +254,25 @@ export class BattleEngine {
         const combatant = fighter.combatant;
         const deck = fighter.deck;
 
-        if (deck.length === 0) return;
+        const action = this.deckRunner.resolveCurrentCard(combatant, deck);
 
-        const cardInstance = deck[combatant.deckIndex];
-        const cardDef = this.cardRegistry.getCardDef(cardInstance.defId);
-        if (!cardDef) {
-            this.advanceDeckIndex(combatant, deck);
-            return;
-        }
+        switch (action.type) {
+            case DeckActionType.EMPTY_DECK:
+                return;
 
-        const manaCost = this.getEffectiveManaCost(cardDef, cardInstance, combatant);
-        const isForced = cardDef.cardType === CardType.CURSE && cardDef.forcePlay;
+            case DeckActionType.INVALID_DEF:
+                this.deckRunner.advanceDeckIndex(combatant, deck);
+                return;
 
-        if (combatant.currentMp >= manaCost || isForced) {
-            this.playCard(side, fighter, enemy, cardDef, cardInstance, manaCost);
-        } else {
-            this.addLog(side, BattleLogType.SKIP_CARD,
-                `${fighter.name} MP不足(${combatant.currentMp}/${manaCost})，跳过「${cardDef.name}」`,
-                { cardId: cardDef.id, required: manaCost, current: combatant.currentMp });
-            this.advanceDeckIndex(combatant, deck);
+            case DeckActionType.SKIP_NO_MP:
+                this.logger.logSkipCard(side, fighter.name, action.cardDef!.name, action.cardDef!.id, action.effectiveManaCost, combatant.currentMp);
+                this.deckRunner.advanceDeckIndex(combatant, deck);
+                return;
+
+            case DeckActionType.PLAY:
+            case DeckActionType.FORCE_PLAY:
+                this.playCard(side, fighter, enemy, action.cardDef!, action.cardInstance!, action.effectiveManaCost);
+                return;
         }
     }
 
@@ -231,9 +292,7 @@ export class BattleEngine {
         this.mpSpentThisAction += actualCost;
         this.cardsPlayedThisAction++;
 
-        this.addLog(side, BattleLogType.PLAY_CARD,
-            `${fighter.name} 打出「${cardDef.name}」(${actualCost}MP)`,
-            { cardId: cardDef.id, manaCost: actualCost });
+        this.logger.logPlayCard(side, fighter.name, cardDef.name, cardDef.id, actualCost);
 
         const targetWasFrozen = this.statusManager.isFrozen(enemy.combatant);
 
@@ -251,28 +310,24 @@ export class BattleEngine {
         };
         const resolver = new CardEffectResolver(ctx);
         const results = resolver.resolve(cardDef.effects);
-        this.logEffectResults(side, results, fighter.name);
+        this.logger.logEffectResults(side, results, fighter.name, enemy.name);
 
         if (!targetWasFrozen && this.statusManager.isFrozen(enemy.combatant)) {
-            this.addLog(side, BattleLogType.FREEZE,
-                `${enemy.name} 被冻结`,
-                { frostStacks: enemy.combatant.frostStacks });
+            this.logger.logFreeze(side, enemy.name, enemy.combatant.frostStacks);
         }
 
         this.triggerPowers(side, PowerTrigger.ON_PLAY_CARD);
 
         if (cardDef.cardType === CardType.POWER && cardDef.power) {
             this.activatePower(combatant, cardDef);
-            this.removeCurrentCard(combatant, deck);
+        }
+
+        if (this.deckRunner.shouldRemoveAfterPlay(cardDef)) {
+            this.deckRunner.removeCurrentCard(combatant, deck);
             return;
         }
 
-        if (cardDef.cardType === CardType.CURSE && cardDef.removeAfterPlay) {
-            this.removeCurrentCard(combatant, deck);
-            return;
-        }
-
-        this.advanceDeckIndex(combatant, deck);
+        this.deckRunner.advanceDeckIndex(combatant, deck);
     }
 
     // ─── POWER 卡牌 ──────────────────────────────────────
@@ -330,153 +385,104 @@ export class BattleEngine {
             const resolver = new CardEffectResolver(ctx);
             const results = resolver.resolve([effect]);
 
-            this.addLog(side, BattleLogType.POWER_TRIGGER,
-                `${fighter.name}「${cardDef.name}」效果触发`,
-                { cardId: power.cardId, trigger, stacks: power.currentStacks });
-            this.logEffectResults(side, results, fighter.name);
+            this.logger.logPowerTrigger(side, fighter.name, cardDef.name, power.cardId, trigger, power.currentStacks);
+            this.logger.logEffectResults(side, results, fighter.name, enemy.name);
         }
     }
 
     // ─── 周期结算 ────────────────────────────────────────
 
     /**
-     * 周期结算：毒伤 → 状态衰减 → MP 回复 → 加时伤害 → 超时判定。
+     * 周期结算：委托 CycleResolver 执行全部阶段，然后根据结果写日志和判定胜负。
      * @see battle-base.md §三 周期与状态结算
      */
     private resolveCycleEnd(): void {
         this.state.cycleCount++;
         const cycle = this.state.cycleCount;
+        this.logger.setTime(this.state.tickCount, cycle);
 
-        this.resolvePoisonDamage('player');
-        this.resolvePoisonDamage('opponent');
-        if (this.checkBattleEnd()) return;
+        const result = this.cycleResolver.resolve(
+            this.state.player.combatant,
+            this.state.opponent.combatant,
+            cycle,
+        );
 
-        this.decayStatuses('player');
-        this.decayStatuses('opponent');
+        this.logger.logPoisonDamage('player', this.state.player.name, result.playerPoison);
+        this.logger.logPoisonDamage('opponent', this.state.opponent.name, result.opponentPoison);
 
-        recoverMp(this.state.player.combatant, this.config.mpRecoveryPerCycle);
-        recoverMp(this.state.opponent.combatant, this.config.mpRecoveryPerCycle);
-
-        if (cycle >= this.config.overtimeStartCycle) {
-            const damage = 1 + (cycle - this.config.overtimeStartCycle) * 2;
-            const pActual = applyHpDamage(this.state.player.combatant, damage);
-            const oActual = applyHpDamage(this.state.opponent.combatant, damage);
-
-            this.addLog('system', BattleLogType.OVERTIME_DAMAGE,
-                `加时伤害：双方各受${damage}点伤害`,
-                { damage, playerActual: pActual, opponentActual: oActual });
-
-            if (this.checkBattleEnd()) return;
-        }
-
-        if (cycle >= this.config.forceEndCycle) {
-            this.endBattle('draw');
+        if (result.deathAfterPoison) {
+            this.checkBattleEnd();
             return;
         }
 
-        this.addLog('system', BattleLogType.CYCLE_END,
-            `第${cycle}周期结算完成`,
-            { cycle });
-    }
+        this.logger.logDecays('player', this.state.player.name, result.playerDecays);
+        this.logger.logDecays('opponent', this.state.opponent.name, result.opponentDecays);
 
-    private resolvePoisonDamage(side: 'player' | 'opponent'): void {
-        const fighter = this.getFighter(side);
-        const result = this.statusManager.resolvePoisonDamage(fighter.combatant);
-        if (result.actualDamage <= 0) return;
+        if (result.overtime) {
+            this.logger.logOvertime(
+                result.overtime.damage,
+                result.overtime.playerActual,
+                result.overtime.opponentActual,
+            );
 
-        this.addLog('system', BattleLogType.DAMAGE,
-            `${fighter.name} 受到${result.actualDamage}点毒药伤害(${result.stacks}层)`,
-            { damage: result.actualDamage, source: 'poison' });
-    }
-
-    /** 霜蚀和毒药衰减。灼烧不自然衰减。 */
-    private decayStatuses(side: 'player' | 'opponent'): void {
-        const fighter = this.getFighter(side);
-        const decays = this.statusManager.resolveDecays(fighter.combatant);
-
-        for (const decay of decays) {
-            if (decay.decayed <= 0) continue;
-
-            this.addLog('system', BattleLogType.STATUS_DECAY,
-                `${fighter.name} ${statusLabel(decay.statusType)}-${decay.decayed}(剩余${decay.remaining})`,
-                { status: decay.statusType, decay: decay.decayed, remaining: decay.remaining });
-
-            if (decay.unfreezeTransition) {
-                this.addLog('system', BattleLogType.UNFREEZE,
-                    `${fighter.name} 解除冻结`, {});
+            if (result.deathAfterOvertime) {
+                this.checkBattleEnd();
+                return;
             }
         }
+
+        if (result.forceEnd) {
+            this.applyBattleEnd('draw', BattleEndReason.FORCE_DRAW);
+            return;
+        }
+
+        this.logger.logCycleEnd(cycle);
     }
 
     // ─── 战斗结束判定 ────────────────────────────────────
 
     /**
-     * 检查战斗结束条件。双方同时死亡时攻方（玩家）判定胜利。
+     * 检查 HP 死亡条件，委托 BattleEndChecker 判定。
      * @see battle-base.md §八 战斗结束条件
      */
     private checkBattleEnd(): boolean {
         if (this.state.isFinished) return true;
 
-        const pAlive = isAlive(this.state.player.combatant);
-        const oAlive = isAlive(this.state.opponent.combatant);
+        const result = this.endChecker.checkDeath(
+            this.state.player.combatant,
+            this.state.opponent.combatant,
+        );
 
-        if (!pAlive && !oAlive) {
-            this.endBattle('player');
-            return true;
-        }
-        if (!oAlive) {
-            this.endBattle('player');
-            return true;
-        }
-        if (!pAlive) {
-            this.endBattle('opponent');
+        if (result.ended) {
+            this.applyBattleEnd(result.winner!, result.reason!);
             return true;
         }
 
         return false;
     }
 
-    private endBattle(winner: 'player' | 'opponent' | 'draw'): void {
+    /**
+     * 应用战斗结束状态并写日志。
+     */
+    private applyBattleEnd(
+        winner: 'player' | 'opponent' | 'draw',
+        reason: BattleEndReason,
+    ): void {
         this.state.isFinished = true;
         this.state.winner = winner;
 
-        const msg = winner === 'draw'
-            ? '战斗超时，平局'
-            : `${this.getFighter(winner).name} 获胜`;
-        this.addLog('system', BattleLogType.BATTLE_END, msg, { winner });
+        this.logger.logBattleEnd(
+            { ended: true, winner, reason },
+            this.state.player.name,
+            this.state.opponent.name,
+        );
     }
 
-    // ─── 卡组管理 ────────────────────────────────────────
+    // ─── 卡组管理（委托 DeckRunner）─────────────────────
 
-    private advanceDeckIndex(combatant: RuntimeCombatant, deck: CardInstance[]): void {
-        if (deck.length === 0) return;
-        combatant.deckIndex = (combatant.deckIndex + 1) % deck.length;
-    }
-
-    /** 移除当前指针位置的卡牌（POWER 打出后 / CURSE 打出后移除）。 */
-    private removeCurrentCard(combatant: RuntimeCombatant, deck: CardInstance[]): void {
-        deck.splice(combatant.deckIndex, 1);
-        if (deck.length > 0 && combatant.deckIndex >= deck.length) {
-            combatant.deckIndex = 0;
-        }
-    }
-
-    private getEffectiveManaCost(
-        cardDef: CardDef, cardInstance: CardInstance, combatant: RuntimeCombatant,
-    ): number {
-        let cost = cardDef.manaCost;
-
-        if (cardInstance.upgraded && cardInstance.upgradePath === 'cost') {
-            cost = Math.max(0, cost - cardDef.upgrade.costReduction);
-        }
-
-        let reduction = 0;
-        for (const buff of combatant.buffs) {
-            if (buff.type === BuffType.COST_REDUCTION) {
-                reduction += buff.value;
-            }
-        }
-        return Math.max(0, cost - reduction);
+    /** 暴露 DeckRunner 供外部查询（如 UI 层预览接下来的卡牌） */
+    getDeckRunner(): DeckRunner {
+        return this.deckRunner;
     }
 
     // ─── Buff 持续时间递减 ───────────────────────────────
@@ -499,88 +505,25 @@ export class BattleEngine {
         return side === 'player' ? this.state.opponent : this.state.player;
     }
 
-    // ─── 日志 ────────────────────────────────────────────
+    // ─── 日志（委托 BattleLogger）─────────────────────────
 
-    private addLog(
-        actor: 'player' | 'opponent' | 'system',
-        type: BattleLogType,
-        message: string,
-        details?: Record<string, unknown>,
-    ): void {
-        this.state.log.push({
-            tick: this.state.tickCount,
-            cycle: this.state.cycleCount,
-            actor,
-            type,
-            message,
-            details,
-        });
-    }
-
-    private logEffectResults(
-        side: 'player' | 'opponent',
-        results: EffectResult[],
-        actorName: string,
-    ): void {
-        const enemyName = this.getEnemy(side).name;
-
-        for (const r of results) {
-            switch (r.type) {
-                case EffectResultType.DAMAGE:
-                    if (r.value != null && r.value > 0) {
-                        this.addLog(side, BattleLogType.DAMAGE,
-                            `${enemyName} 受到${r.value}点伤害${r.detail === 'ignore_armor' ? '(无视护甲)' : ''}`,
-                            { damage: r.value, ignoreArmor: r.detail === 'ignore_armor' });
-                    }
-                    break;
-                case EffectResultType.ARMOR_GAIN:
-                    if (r.value != null && r.value > 0) {
-                        this.addLog(side, BattleLogType.ARMOR_GAIN,
-                            `${actorName} 获得${r.value}点护甲`, { armor: r.value });
-                    }
-                    break;
-                case EffectResultType.HEAL_HP:
-                    if (r.value != null && r.value > 0) {
-                        this.addLog(side, BattleLogType.HEAL,
-                            `${actorName} 回复${r.value}HP`, { hp: r.value });
-                    }
-                    break;
-                case EffectResultType.HEAL_MP:
-                    if (r.value != null && r.value > 0) {
-                        this.addLog(side, BattleLogType.HEAL,
-                            `${actorName} 回复${r.value}MP`, { mp: r.value });
-                    }
-                    break;
-                case EffectResultType.STATUS_APPLY:
-                    this.addLog(side, BattleLogType.STATUS_APPLY,
-                        `${enemyName} 被施加${r.value}层${r.detail}`,
-                        { status: r.detail, stacks: r.value });
-                    break;
-                case EffectResultType.DRAIN:
-                    this.addLog(side, BattleLogType.DRAIN,
-                        `${actorName} 汲取${r.value}点${r.detail}`,
-                        { attribute: r.detail, amount: r.value });
-                    break;
-                case EffectResultType.CURSE_INSERT:
-                    this.addLog(side, BattleLogType.CURSE_INSERT,
-                        `向${enemyName}卡组插入${r.value}张诅咒卡`,
-                        { count: r.value, curseId: r.detail });
-                    break;
-                default:
-                    break;
-            }
-        }
+    /** 暴露 BattleLogger 供外部查询（UI 层/回放系统） */
+    getLogger(): BattleLogger {
+        return this.logger;
     }
 }
 
 // ─── 模块工具函数 ────────────────────────────────────────
 
-const STATUS_LABELS: Record<string, string> = {
-    [StatusType.FROST]: '霜蚀',
-    [StatusType.BURN]: '灼烧',
-    [StatusType.POISON]: '毒药',
-};
-
-function statusLabel(type: StatusType): string {
-    return STATUS_LABELS[type] ?? type;
+function cloneFighter(f: BattleFighter): BattleFighter {
+    return {
+        name: f.name,
+        combatant: {
+            ...f.combatant,
+            activePowers: f.combatant.activePowers.map(p => ({ ...p })),
+            buffs: f.combatant.buffs.map(b => ({ ...b })),
+        },
+        deck: f.deck.map(c => ({ ...c })),
+        relics: [...f.relics],
+    };
 }

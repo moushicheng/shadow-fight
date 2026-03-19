@@ -106,11 +106,11 @@ shadow-fight/
 | 1.3 ✅ | ATB 战斗引擎 | `core/battle/BattleEngine.ts` — tick 循环、行动槽、行动解析 | 1.1, 1.2 |
 | 1.4 ✅ | 伤害计算系统 | `core/battle/DamageCalculator.ts` — 基础伤害、修正、护甲结算 | 1.2 |
 | 1.5 ✅ | 状态效果系统 | `core/battle/StatusManager.ts` — 霜蚀/灼烧/毒药/诅咒/汲取 | 1.3 |
-| 1.6 | 周期结算系统 | `core/battle/CycleResolver.ts` — 100 tick 周期结算（毒伤、衰减、MP 回复、加时） | 1.3, 1.5 |
-| 1.7 | 战斗结束判定 | `core/battle/BattleEndChecker.ts` — 正常结束 + 超时机制 | 1.3 |
-| 1.8 | 卡组指针与循环 | `core/deck/DeckRunner.ts` — 有序卡组循环、MP 不足跳过、诅咒卡处理 | 1.2 |
-| 1.9 | 战斗初始化 | `core/battle/BattleInitializer.ts` — 遗物触发、临时 Buff、状态清零 | 1.3 |
-| 1.10 | 战斗日志系统 | `core/battle/BattleLogger.ts` — 记录每个 tick 的行动（调试 + 回放） | 1.3 |
+| 1.6 ✅ | 周期结算系统 | `core/battle/CycleResolver.ts` — 100 tick 周期结算（毒伤、衰减、MP 回复、加时） | 1.3, 1.5 |
+| 1.7 ✅ | 战斗结束判定 | `core/battle/BattleEndChecker.ts` — 正常结束 + 超时机制 | 1.3 |
+| 1.8 ✅ | 卡组指针与循环 | `core/deck/DeckRunner.ts` — 有序卡组循环、MP 不足跳过、诅咒卡处理 | 1.2 |
+| 1.9 ✅ | 战斗初始化 | `core/battle/BattleInitializer.ts` — 遗物触发、临时 Buff、状态清零 | 1.3 |
+| 1.10 ✅ | 战斗日志系统 | `core/battle/BattleLogger.ts` — 记录每个 tick 的行动（调试 + 回放） | 1.3 |
 
 **关键验证点**：
 - SPD 10 vs SPD 7 在 100 tick 内行动比精确为 10:7
