@@ -5,9 +5,11 @@ import {
 import { RuntimeCombatant } from '../../types/CharacterTypes';
 import { RelicDef, RelicCustomEffect } from '../../types/RelicTypes';
 import { TempBuff } from '../../types/RunTypes';
-import { RelicTrigger, BuffType } from '../../types/Enums';
-import { CardEffect } from '../../types/CardTypes';
+import { RelicTrigger, BuffType, CardType, TempBuffType } from '../../types/Enums';
+import { CardEffect, CardInstance } from '../../types/CardTypes';
 import { gainArmor, healHp } from '../character/EffectiveStats';
+import { SeededRandom } from '../utils/SeededRandom';
+import { CardDefProvider } from '../deck/DeckRunner';
 
 // ─── 外部依赖接口 ────────────────────────────────────────
 
@@ -29,6 +31,8 @@ export interface BattleSetup {
     playerTempBuffs?: TempBuff[];
     /** 对手的临时增益（野怪/残影可能也有特殊增益） */
     opponentTempBuffs?: TempBuff[];
+    /** 战斗种子随机数生成器（用于诅咒卡洗入等战斗随机事件） */
+    rng: SeededRandom;
 }
 
 // ─── 初始化结果 ──────────────────────────────────────────
@@ -47,14 +51,12 @@ export interface InitializedBattle {
  *
  * 按 battle-base.md §4.1 的流程准备战斗状态：
  * 1. 深拷贝双方数据
- * 2. 应用临时 Buff（事件/赌约）+ 触发遗物 BATTLE_START 效果
- * 3. 构建 BattleState
+ * 2. 诅咒卡随机洗入（从卡组中抽出所有诅咒卡，逐张随机插回）
+ * 3. 应用临时 Buff（事件/赌约）+ 触发遗物 BATTLE_START 效果
+ * 4. 构建 BattleState
  *
  * 无需清零战斗瞬态：CombatantFactory 创建时所有瞬态字段（护甲/状态/Buff/
  * 行动槽/卡组指针/MP）已是初始值，且战斗只操作克隆体，不会污染原始数据。
- *
- * 卡组保持原样（含诅咒卡）——战斗操作的是克隆卡组，不影响原始卡组。
- * 诅咒卡可能来自负面事件，属于持久惩罚，不应在战斗前移除。
  *
  * 不依赖引擎 API，纯逻辑可测试。
  *
@@ -62,9 +64,11 @@ export interface InitializedBattle {
  */
 export class BattleInitializer {
     private readonly relicLookup: RelicDefLookup;
+    private readonly cardProvider: CardDefProvider;
 
-    constructor(relicLookup: RelicDefLookup) {
+    constructor(relicLookup: RelicDefLookup, cardProvider: CardDefProvider) {
         this.relicLookup = relicLookup;
+        this.cardProvider = cardProvider;
     }
 
     /**
@@ -79,7 +83,11 @@ export class BattleInitializer {
         const player = cloneFighter(setup.player);
         const opponent = cloneFighter(setup.opponent);
 
-        // 2. 应用临时 Buff
+        // 2. 诅咒卡随机洗入（抽出所有诅咒卡后逐张随机插回）
+        this.shuffleCurseCards(player, setup.rng, 'player', log);
+        this.shuffleCurseCards(opponent, setup.rng, 'opponent', log);
+
+        // 3. 应用临时 Buff
         if (setup.playerTempBuffs) {
             for (const tb of setup.playerTempBuffs) {
                 this.applyTempBuff(player, tb, 'player', log);
@@ -91,11 +99,11 @@ export class BattleInitializer {
             }
         }
 
-        // 3. 触发 BATTLE_START 遗物（先玩家后对手）
+        // 4. 触发 BATTLE_START 遗物（先玩家后对手）
         this.triggerBattleStartRelics(player, 'player', log);
         this.triggerBattleStartRelics(opponent, 'opponent', log);
 
-        // 4. 构建 BattleState
+        // 5. 构建 BattleState
         const state: BattleState = {
             player,
             opponent,
@@ -128,15 +136,15 @@ export class BattleInitializer {
 
         for (const effect of tempBuff.effects) {
             switch (effect.type) {
-                case 'atk_add':
+                case TempBuffType.ATK_ADD:
                     c.attack += effect.value;
                     break;
 
-                case 'spd_add':
+                case TempBuffType.SPD_ADD:
                     c.baseSpeed += effect.value;
                     break;
 
-                case 'damage_mult':
+                case TempBuffType.DAMAGE_MULT:
                     c.buffs.push({
                         type: BuffType.DAMAGE_MULTIPLY,
                         value: effect.value,
@@ -145,7 +153,7 @@ export class BattleInitializer {
                     });
                     break;
 
-                case 'damage_taken_mult':
+                case TempBuffType.DAMAGE_TAKEN_MULT:
                     c.buffs.push({
                         type: BuffType.VULNERABILITY,
                         value: effect.value,
@@ -154,7 +162,7 @@ export class BattleInitializer {
                     });
                     break;
 
-                case 'hp_change':
+                case TempBuffType.HP_CHANGE:
                     if (effect.value > 0) {
                         healHp(c, effect.value);
                     } else if (effect.value < 0) {
@@ -162,11 +170,9 @@ export class BattleInitializer {
                     }
                     break;
 
-                case 'overtime_limit':
-                    // overtime_limit 需要由 BattleEngine 读取并修改 BattleConfig，
-                    // 此处记录到 Buff 中供 BattleEngine 查询
+                case TempBuffType.OVERTIME_LIMIT:
                     c.buffs.push({
-                        type: BuffType.DAMAGE_REDUCTION, // 复用类型，特殊标记
+                        type: BuffType.DAMAGE_REDUCTION,
                         value: effect.value,
                         remaining: -1,
                         sourceCardId: `overtime_limit_${tempBuff.id}`,
@@ -178,6 +184,42 @@ export class BattleInitializer {
         log.push(makeLogEntry(side, BattleLogType.RELIC_TRIGGER,
             `${fighter.name} 获得增益「${tempBuff.description}」`,
             { buffId: tempBuff.id }));
+    }
+
+    // ─── 诅咒卡随机洗入 ──────────────────────────────────
+
+    /**
+     * 从卡组中抽出所有诅咒卡，再逐张随机插回任意位置。
+     * 使用战斗种子随机保证可回放。
+     *
+     * @see battle-base.md §4.1 步骤 2
+     * @see card-base.md §8.2 战斗洗入机制
+     */
+    private shuffleCurseCards(
+        fighter: BattleFighter,
+        rng: SeededRandom,
+        side: 'player' | 'opponent',
+        log: BattleLogEntry[],
+    ): void {
+        const extracted: CardInstance[] = [];
+        for (let i = fighter.deck.length - 1; i >= 0; i--) {
+            const card = fighter.deck[i];
+            const def = this.cardProvider.getCardDef(card.defId);
+            if (def && def.cardType === CardType.CURSE) {
+                extracted.push(card);
+                fighter.deck.splice(i, 1);
+            }
+        }
+        if (extracted.length === 0) return;
+
+        for (const curse of extracted) {
+            const insertIdx = rng.nextInt(0, fighter.deck.length);
+            fighter.deck.splice(insertIdx, 0, curse);
+        }
+
+        log.push(makeLogEntry(side, BattleLogType.CURSE_INSERT,
+            `${fighter.name} 的 ${extracted.length} 张诅咒卡已随机洗入卡组`,
+            { curseCount: extracted.length }));
     }
 
     // ─── 遗物触发 ────────────────────────────────────────

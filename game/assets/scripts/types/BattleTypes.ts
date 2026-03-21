@@ -116,12 +116,12 @@ export interface BattleConfig {
 
 /** 默认战斗配置（基于 battle-base.md §11.2） */
 export const DEFAULT_BATTLE_CONFIG: BattleConfig = {
-    gaugeThreshold: 100,
-    ticksPerCycle: 100,
+    gaugeThreshold: 100,         // 行动槽阈值 —— 行动槽 ≥ 此值时执行行动
+    ticksPerCycle: 10,           // 每10tick=1周期（≈1回合，SPD10角色每周期行动1次）
     frostPerSpeedReduction: 3,   // 每 3 层霜蚀 = -1 speed
-    frostDecayPerCycle: 2,       // 每周期 -2 层
+    frostDecayPerCycle: 1,       // 每周期 -1 层（1周期≈1回合，衰减更慢以保证冰系控制力）
     poisonDecayPerCycle: 1,      // 每周期 -1 层
     mpRecoveryPerCycle: 1,       // 每周期 +1 MP
-    overtimeStartCycle: 100,     // 第 100 周期开始加时
-    forceEndCycle: 200,          // 第 200 周期强制结束
+    overtimeStartCycle: 20,      // 第 20 周期开始加时（SPD10约20次行动）
+    forceEndCycle: 30,           // 第 30 周期强制结束
 };

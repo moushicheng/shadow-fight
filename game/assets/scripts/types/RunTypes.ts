@@ -1,4 +1,4 @@
-import { Faction, GameNodeType } from './Enums';
+import { Faction, GameNodeType, RunStatus, TempBuffType } from './Enums';
 import { PlayerBaseProperty } from './CharacterTypes';
 import { CardInstance } from './CardTypes';
 
@@ -18,16 +18,8 @@ export interface TempBuff {
 
 /** 临时增益的具体效果 */
 export interface TempBuffEffect {
-    /**
-     * 效果类型：
-     * - atk_add: 本场战斗 ATK +value
-     * - spd_add: 本场战斗 SPD +value
-     * - damage_mult: 本场战斗伤害倍率 +value（如 0.5 = +50%）
-     * - damage_taken_mult: 本场战斗受到伤害倍率 +value
-     * - hp_change: 立即改变 HP（正数回复，负数扣血）
-     * - overtime_limit: 覆盖加时阈值（如速战速决赌约 = 30 周期）
-     */
-    type: 'atk_add' | 'spd_add' | 'damage_mult' | 'damage_taken_mult' | 'hp_change' | 'overtime_limit';
+    /** 效果类型 */
+    type: TempBuffType;
     /** 效果数值 */
     value: number;
 }
@@ -50,8 +42,8 @@ export interface RunState {
     deck: CardInstance[];
     /** 当前持有遗物 ID 列表 */
     relics: string[];
-    /** 流派池 —— 每局随机 2 个流派，决定可获取的卡牌范围 */
-    factionPool: [Faction, Faction];
+    /** 流派池 —— 每局随机抽取的流派列表，决定可获取的卡牌范围 */
+    factionPool: Faction[];
     /** 当前金币 */
     gold: number;
     /** 当前层数（1-10），通关第 10 层即胜利 */
@@ -60,6 +52,18 @@ export interface RunState {
     currentCycle: 1 | 2;
     /** 当前所处的游戏节点类型 */
     currentNode: GameNodeType;
+    /**
+     * 当前在本层节点序列中的索引（0-5）。
+     * 普通层 6 节点：事件→路线选择→事件→事件→残影选择→商店
+     * 用于精确定位恢复位置（因为同层有多个 EVENT 节点）。
+     */
+    nodeIndex: number;
+    /** 是否已使用本局的免费重摇机会 */
+    rerollUsed: boolean;
+    /** 商店服务累计使用次数（决定服务价格：50 + serviceUseCount × 25） */
+    serviceUseCount: number;
+    /** 当前局状态 */
+    runStatus: RunStatus;
     /** 临时增益列表（下场战斗生效后消失） */
     tempBuffs: TempBuff[];
     /** 本局已遇到的残影 ID 列表（同局不重复匹配） */

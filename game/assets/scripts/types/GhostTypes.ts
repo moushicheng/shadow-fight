@@ -24,7 +24,7 @@ export interface Ghost {
     /** 死在第几层（决定进入哪一层的对手池） */
     floor: number;
     /** 流派池 */
-    factionPool: [Faction, Faction];
+    factionPool: Faction[];
     /** 存档时间戳 */
     timestamp: number;
 }
@@ -39,7 +39,7 @@ export interface GhostSummary {
     /** 玩家昵称 */
     playerName: string;
     /** 流派池 —— 展示如「冰 + 刺客」，便于判断克制关系 */
-    factionPool: [Faction, Faction];
+    factionPool: Faction[];
     /** 难度星级 —— ★☆☆ 较弱 / ★★☆ 中等 / ★★★ 强力 */
     difficulty: 1 | 2 | 3;
     /** 卡组张数 —— 暗示构筑质量（少而精 vs 多而杂） */

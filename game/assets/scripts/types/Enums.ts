@@ -329,3 +329,32 @@ export enum RouteType {
     /** 赏金挑战 —— 10% 概率额外出现，Boss 级野怪，败则扣 30% 最大 HP */
     BOUNTY = 'BOUNTY',
 }
+
+/** 单局运行状态 */
+export enum RunStatus {
+    /** 进行中 */
+    ONGOING = 'ONGOING',
+    /** 通关胜利 */
+    VICTORY = 'VICTORY',
+    /** 死亡失败 */
+    DEFEAT = 'DEFEAT',
+}
+
+/**
+ * 临时增益效果类型。
+ * 来自事件奖励 / 赌约正面效果，在下场战斗初始化时应用。
+ */
+export enum TempBuffType {
+    /** 本场战斗 ATK +value */
+    ATK_ADD = 'ATK_ADD',
+    /** 本场战斗 SPD +value */
+    SPD_ADD = 'SPD_ADD',
+    /** 本场战斗伤害倍率 +value（如 0.5 = +50%） */
+    DAMAGE_MULT = 'DAMAGE_MULT',
+    /** 本场战斗受到伤害倍率 +value */
+    DAMAGE_TAKEN_MULT = 'DAMAGE_TAKEN_MULT',
+    /** 立即改变 HP（正数回复，负数扣血） */
+    HP_CHANGE = 'HP_CHANGE',
+    /** 覆盖加时阈值（如速战速决赌约 = 30 周期） */
+    OVERTIME_LIMIT = 'OVERTIME_LIMIT',
+}

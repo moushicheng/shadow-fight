@@ -124,8 +124,9 @@ export class BattleEngine {
      *
      * 包含完整的初始化流程：
      * 1. 深拷贝双方数据
-     * 2. 应用临时 Buff（事件/赌约）
-     * 3. 触发 BATTLE_START 遗物
+     * 2. 诅咒卡随机洗入
+     * 3. 应用临时 Buff（事件/赌约）
+     * 4. 触发 BATTLE_START 遗物
      *
      * @see battle-base.md §四 战斗初始化
      */
@@ -136,7 +137,7 @@ export class BattleEngine {
         config: BattleConfig = DEFAULT_BATTLE_CONFIG,
         seed: number = Date.now(),
     ): BattleEngine {
-        const initializer = new BattleInitializer(relicLookup);
+        const initializer = new BattleInitializer(relicLookup, cardRegistry);
         const { state } = initializer.initialize(setup);
         return BattleEngine.fromState(state, cardRegistry, config, seed);
     }

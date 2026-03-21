@@ -106,20 +106,30 @@ describe('验证点 2：霜蚀减速、冻结与解冻', () => {
         expect(isFrozen(combatant, config)).toBe(true);
     });
 
-    it('每周期衰减 2 层霜蚀，从 24 层逐步解冻', () => {
+    it('每周期衰减 1 层霜蚀，从 24 层逐步解冻', () => {
         const combatant = makeCombatant({ baseSpeed: 8, frostStacks: 24 });
 
         // 24 层 → 减速 8 → 有效速度 0 → 冻结
         expect(isFrozen(combatant, config)).toBe(true);
 
-        // 衰减 1 次：24 → 22 层, 减速 7 → 有效速度 1 → 解冻!
+        // 衰减 1 次：24 → 23 层, 减速 7 → 有效速度 1 → 解冻!
         const decay1 = statusManager.resolveDecays(combatant);
-        expect(combatant.frostStacks).toBe(22);
+        expect(combatant.frostStacks).toBe(23);
         expect(getEffectiveSpeed(combatant, config)).toBe(1);
         expect(isFrozen(combatant, config)).toBe(false);
         expect(decay1.some(d => d.unfreezeTransition === true)).toBe(true);
 
-        // 衰减 2 次：22 → 20, 减速 6 → 有效速度 2
+        // 衰减 2 次：23 → 22, 减速 7 → 有效速度 1（仍在恢复中）
+        statusManager.resolveDecays(combatant);
+        expect(combatant.frostStacks).toBe(22);
+        expect(getEffectiveSpeed(combatant, config)).toBe(1);
+
+        // 衰减 3 次：22 → 21, 减速 7 → 有效速度 1
+        statusManager.resolveDecays(combatant);
+        expect(combatant.frostStacks).toBe(21);
+        expect(getEffectiveSpeed(combatant, config)).toBe(1);
+
+        // 衰减 4 次：21 → 20, 减速 6 → 有效速度 2
         statusManager.resolveDecays(combatant);
         expect(combatant.frostStacks).toBe(20);
         expect(getEffectiveSpeed(combatant, config)).toBe(2);
