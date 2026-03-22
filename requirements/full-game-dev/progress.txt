@@ -29,3 +29,100 @@
   - 决策：心不可恢复（整局固定 5 颗），暂不支持事件/遗物恢复心
 
 [2026-03-21 22:55] 下一步: Phase 2.6 野怪生成系统 / 2.7 商店系统 / 2.8 遗物系统
+
+[2026-03-21 23:17] 完成: Phase 2.6 野怪生成系统 MonsterGenerator
+  - 产出：core/monster/MonsterGenerator.ts + tests/monster-generator.test.ts（71 项测试全通过）
+  - 实现：
+    · distributeAttributes：按权重分配属性点，支持流派偏好（普通均匀/流派按 FACTION_BIAS）
+    · buildDeck：从卡牌池构建卡组（普通=COMMON，流派/精英=流派+COMMON），允许重复
+    · assignRelics：按层级规则分配遗物（1-3 层无，4-6 层普通，7+ 层普通+稀有），不重复
+    · calcGoldDrop：基于层级基础金币 ±20% 浮动，精英 ×1.3
+    · generateNormal/Faction/Elite/Bounty：四种便捷生成方法，自动从 FloorManager 获取参数
+    · instantiateTemplate：从预设模板缩放属性到当前层总点数（等比缩放+舍入修正）
+    · filterTemplatesForFloor：按层数范围和类型限制过滤模板
+    · generateName：按类型和流派从名字池取名
+  - 决策：MonsterGenerator 设计为纯静态方法类（与 FloorManager 一致），不持有状态
+  - 决策：怪物 SPD 下限设为 1（低于玩家的 3），保证怪物至少能行动
+  - 决策：卡组构建允许重复卡牌（同一卡可多次出现），符合 roguelike 怪物卡组设计
+  - 决策：10 个流派各有属性偏好权重（如冰系→SPD、火系→STR、守卫→CON），统计测试验证偏好生效
+  - 决策：cardPool/relicPool 为空时优雅降级（空卡组/空遗物），不报错，便于分阶段开发
+
+[2026-03-21 23:21] 决策: MonsterGenerator 从"程序随机生成"重构为"纯模板驱动"
+  - 原因：怪物应由开发者精心设计卡组/属性/遗物，不应随机拼凑
+  - 移除：distributeAttributes、buildDeck、assignRelics、calcGoldDrop、generateNormal/Faction/Elite/Bounty、名字池、流派偏好权重
+  - 保留并强化：scaleAttributes（等比缩放）、instantiate/AsElite/AsBounty（三级难度）、filterForFloor、pickAndInstantiate/Elite/Bounty（模板选择）
+  - 测试从 71 项精简为 33 项（移除程序生成测试，聚焦缩放和选择逻辑）
+
+[2026-03-21 23:21] 下一步: Phase 2.7 商店系统 / 2.8 遗物系统 / 2.9 卡牌奖励生成
+
+[2026-03-21 23:43] 完成: Phase 2.7 商店系统 ShopManager
+  - 产出：core/shop/ShopManager.ts + tests/shop-manager.test.ts（53 项测试全通过）
+  - 实现：
+    · generateShop：生成完整商店（5 卡牌 + 1-2 药水 + 0-1 遗物 + 2 服务）
+    · buyCard / buyPotion / buyRelic：购买商品（扣金币、标记售出、加入库存）
+    · useServiceRemoveCard：移除卡牌（不允许移除最后一张）
+    · useServiceUpgradeCard：升级卡牌（cost/enhance 二选一路线）
+    · useServiceReorderDeck：调序（免费，移动卡牌位置）
+    · 药水效果：HEAL_HP 立即回复、HEAL_HP_PERCENT 百分比回复、BUFF_ATK/SPD/MP 添加临时增益
+    · 价格系统：卡牌按品质区间（普通30-50/稀有80-120/史诗150-200/传说300-400）
+    · 服务限制：每次进店限用 1 次服务，使用后所有服务标记不可用
+  - 决策：ShopManager 设计为纯静态方法类（与 FloorManager/MonsterGenerator 一致），不持有状态
+  - 决策：服务价格全局递增（50 + serviceUseCount × 25），调序固定免费
+  - 决策：遗物排除已拥有的 + 层数限制，50% 概率出现
+  - 决策：新增 TempBuffType.MP_ADD 支持魔力药水的临时增益
+  - 决策：ShopState 卡牌数量从 3 改为 5（对齐 plan.md 规格）
+  - 决策：卡池/遗物池为空时优雅降级，不报错
+
+[2026-03-21 23:43] 下一步: Phase 2.8 遗物系统 / 2.9 卡牌奖励生成 / 2.10 战斗奖励结算
+
+[2026-03-21 23:55] 完成: Phase 2.8 遗物系统 RelicManager
+  - 产出：core/relic/RelicManager.ts + tests/relic-manager.test.ts（44 项测试全通过）
+  - 实现：
+    · 遗物注册表：实现 RelicDefLookup 接口，供 BattleInitializer 查询遗物定义
+    · rollRarity：品质随机（普通 60%/稀有 30%/传说 10%），10000 次抽样验证分布
+    · filterAvailable：按层数、已拥有、品质下限、流派过滤可用遗物
+    · shouldDropRelic：掉落判定（20% 基础/25% 精英/+10% 高星残影），引用 FloorManager 配置
+    · generateChoices：三选一候选生成，独立掷品质 + 品质降级兜底 + 不重复
+    · acquireRelic / isOwned：获取去重（同一遗物不重复获取），持有无上限
+    · triggerOnEnterShop：非战斗触发，支持 CardEffect 和 RelicCustomEffect 两种效果格式
+    · triggerOnBattleEnd：战斗结束后的 RunState 级效果触发
+    · getRelicsByTrigger：按触发时机查询持有遗物列表，供战斗引擎调用
+  - 决策：RelicManager 为实例类（持有遗物定义注册表），非 static，与 FactionPool 模式一致
+  - 决策：品质降级机制：掷出传说但无传说可用时，依次尝试稀有→普通→任意
+  - 决策：非战斗触发效果支持 HEAL_HP / HEAL_HP_PERCENT / GAIN_GOLD / DISCOUNT 四种自定义类型
+  - 决策：BattleInitializer 已处理 BATTLE_START 战中触发，RelicManager 不重复实现
+
+[2026-03-21 23:55] 下一步: Phase 2.9 卡牌奖励生成 / 2.10 战斗奖励结算
+
+[2026-03-22 12:56] 完成: Phase 2.9 卡牌奖励生成 RewardGenerator
+  - 产出：core/card/RewardGenerator.ts + tests/reward-generator.test.ts（21 项测试全通过）
+  - 实现：
+    · generateCardReward：战斗后生成 3 选 1 候选卡牌，全部来自流派池 + COMMON
+    · buildRarityWeights：构建品质权重（基础 55/30/12/3%，7 层+ 紫金各+5%，精英移除白色）
+    · rollRarity：按权重掷品质
+    · _pickCardByRarity：按品质选卡，无匹配时逐级降级（先向低→再向高→任意）
+    · _pickWeighted：按 dropWeight 加权随机
+  - 决策：品质掷骰在前，卡牌选取在后（rarity-first approach），精确控制品质分布
+  - 决策：精英路线移除 NORMAL 后按比例重分配权重（RARE ~67%/EPIC ~27%/LEGENDARY ~7%）
+  - 决策：3 张候选不重复（usedIds 去重），可用卡不足 3 张时返回全部可用
+  - 决策：复用 FactionPool.filterAvailableCards 做流派/层数/渠道过滤，RewardGenerator 只负责品质掷骰和选取
+
+[2026-03-22 12:56] 下一步: Phase 2.10 战斗奖励结算（Phase 2 最后一项）
+
+[2026-03-22 13:02] 完成: Phase 2.10 战斗奖励结算 RewardSettlement
+  - 产出：core/run/RewardSettlement.ts + tests/reward-settlement.test.ts（27 项测试全通过，全量 290 项零回归）
+  - 实现：
+    · generateReward：生成完整战斗奖励包（金币自动入账 + 卡牌/遗物候选列表）
+    · calcGoldReward：计算金币（基础值 × 精英1.5 × 高星残影1.3）
+    · applyCardChoice：玩家选卡写入卡组末尾 + 更新 cardsObtained 统计
+    · applyRelicChoice：委托 RelicManager.acquireRelic 去重添加
+    · applyGoldReward：金币累加 + 更新 goldEarned 统计
+    · _updateBattleStats：按战斗类型更新 monstersDefeated/ghostsDefeated
+  - 决策：RewardSettlement 为纯静态编排器，不持有状态，委托 FloorManager/RewardGenerator/RelicManager 各负其责
+  - 决策：金币自动入账（无需玩家选择），卡牌和遗物返回候选列表供 UI 层展示
+  - 决策：赏金挑战的额外遗物与常规遗物掉落独立判定（两者可同时出现）
+  - 决策：skip 方法为 no-op，保持 API 对称性供 UI 层调用
+
+[2026-03-22 13:02] 完成: Phase 2 全部完成 ✅（2.1—2.10 共 10 个子任务）
+
+[2026-03-22 13:02] 下一步: Phase 3 战斗引擎（开发第二阶段的核心玩法逻辑）

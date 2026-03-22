@@ -354,6 +354,8 @@ export enum TempBuffType {
     DAMAGE_TAKEN_MULT = 'DAMAGE_TAKEN_MULT',
     /** 立即改变 HP（正数回复，负数扣血） */
     HP_CHANGE = 'HP_CHANGE',
+    /** 本场战斗最大 MP +value */
+    MP_ADD = 'MP_ADD',
     /** 覆盖加时阈值（如速战速决赌约 = 30 周期） */
     OVERTIME_LIMIT = 'OVERTIME_LIMIT',
 }

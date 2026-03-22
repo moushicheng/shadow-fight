@@ -95,10 +95,10 @@ export interface ShopService {
 /**
  * 商店完整状态。
  * 每层第 2 循环残影战斗结束后进入商店（每层仅 1 次机会）。
- * 商品栏位：卡牌 ×3 + 药水 ×1-2 + 遗物 ×0-1 + 服务（常驻）。
+ * 商品栏位：卡牌 ×5 + 药水 ×1-2 + 遗物 ×0-1(50%) + 服务 ×2。
  */
 export interface ShopState {
-    /** 可购买卡牌（3 张） */
+    /** 可购买卡牌（5 张） */
     cards: ShopCardItem[];
     /** 可购买药水（1-2 瓶） */
     potions: ShopPotionItem[];
