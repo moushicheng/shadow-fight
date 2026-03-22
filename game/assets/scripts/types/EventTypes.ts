@@ -1,16 +1,38 @@
 import { EventCategory, Faction } from './Enums';
 
 /**
- * 事件选项。
- * 每个事件提供 1-N 个选项供玩家选择，如"冒险开箱 vs 安全离开"。
+ * 事件选项（支持无限嵌套的分支叙事树）。
+ *
+ * 两种模式：
+ * - **叶子节点**：只有 effects，选择后直接结算效果，事件结束。
+ * - **分支节点**：有 nextDescription + nextOptions，选择后推进故事，
+ *   展示新叙事文本，再呈现新一层选项。effects 也会在进入分支时立即结算
+ *   （可为空数组表示"无即时效果，仅推进故事"）。
+ *
+ * 示例：
+ * ```
+ * 「神秘商人」—— "你在暗巷遇到一个神秘商人..."
+ *  ├─ "查看商品"  → nextDescription: "商人展开一块布..."
+ *  │   ├─ "买下匕首" → effects: [GAIN_CARD]
+ *  │   ├─ "买下药水" → effects: [HEAL_HP]
+ *  │   └─ "离开"     → effects: []
+ *  ├─ "威胁他"    → effects: [GAIN_GOLD(50%), DAMAGE_HP(50%)]
+ *  └─ "无视走开"  → effects: []
+ * ```
  */
 export interface EventOption {
     /** 选项按钮文本，如"打开箱子" */
     text: string;
     /** 选项提示/描述，如"（可能获得卡牌/金币）" */
     hint?: string;
-    /** 选择后执行的效果列表 */
+    /** 选择后执行的效果列表（分支节点也可带即时效果，选中即结算） */
     effects: EventEffect[];
+    /** 选择此选项后展示的下一段叙事文本（有此字段说明是分支节点） */
+    nextDescription?: string;
+    /** 下一段叙事的插图资源路径（可选） */
+    nextIllustration?: string;
+    /** 下一层选项列表（递归结构，支持无限嵌套） */
+    nextOptions?: EventOption[];
 }
 
 /**

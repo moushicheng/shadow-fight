@@ -1,0 +1,31 @@
+[2026-03-21 20:35] 完成: Phase 2.3 层级推进 FloorManager
+  - 产出：core/run/FloorManager.ts + tests/floor-manager.test.ts（27 项测试全通过）
+  - 实现：层级阶段划分（新手/成长/挑战/Boss）、事件概率分布查询、野怪参数计算、精英参数计算、路线可用性、赏金概率、金币奖励、高品质掉率加成
+  - 决策：FloorManager 设计为纯静态方法类（无可变状态），与 RunManager 的状态管理职责分离。RunManager 负责状态跟踪，FloorManager 负责规则配置查询。
+
+[2026-03-21 20:35] 完成: Phase 2.4 事件系统框架 EventManager
+  - 产出：core/event/EventManager.ts + tests/event-manager.test.ts（21 项测试全通过）
+  - 实现：事件池管理、按层数概率抽取事件类别、候选过滤（层数/类别/去重/流派）、fallback 机制、全部 11 种事件效果执行（HP/金币/属性/卡牌/遗物/临时Buff/升级）
+  - 决策：GAIN_CARD 和 GAIN_RELIC 效果需要上层系统配合（卡牌奖励生成器和遗物系统），当前仅打标记，留待 2.9 和 2.8 接入
+  - 决策：概率型效果支持 probability + fallback 链式回退，满足「赌徒的骰子」类事件需求
+
+[2026-03-21 20:35] 下一步: Phase 2.5 路线选择系统 / 2.6 野怪生成系统 / 2.7 商店系统（均依赖 2.3）
+
+[2026-03-21 22:55] 完成: Phase 2.5 路线选择系统 RouteSelector + 生命机制
+  - 产出：core/run/RouteSelector.ts + tests/route-selector.test.ts（33 项测试全通过）
+  - 策划案变更（与用户确认后修正）：
+    · 路线三选一从"精英/普通/未知事件"改为"精英/普通A/普通B"（每项显示怪物名称）
+    · 移除 UNKNOWN_EVENT 路线类型
+    · 新增生命机制：每局 5 颗心，战斗 HP 归零消耗 1 心继续流程，心耗尽 Game Over
+    · 赏金挑战强度 = 精英参数 × 1.5，胜利奖励 = 标准 + 额外 1 遗物
+    · 战斗失败后 HP 恢复比例可配置（暂定 100%）
+  - 实现：
+    · RouteSelector：路线选项生成（精英/普通A/普通B + 10%赏金）、选择处理、节点类型映射
+    · FloorManager.getBountyParams：赏金怪物参数计算
+    · RunManager.handleBattleDefeat：心消耗 + HP 恢复
+    · RunState.hearts 字段 + 初始化
+    · Enums.RouteType 移除 UNKNOWN_EVENT
+  - 决策：RouteSelector 不直接创建怪物实例，只做模板选择和路线信息生成，具体怪物实例化由 2.6 野怪生成系统负责
+  - 决策：心不可恢复（整局固定 5 颗），暂不支持事件/遗物恢复心
+
+[2026-03-21 22:55] 下一步: Phase 2.6 野怪生成系统 / 2.7 商店系统 / 2.8 遗物系统

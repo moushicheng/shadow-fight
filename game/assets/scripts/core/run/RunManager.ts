@@ -7,6 +7,9 @@ import { FactionPool } from '../faction/FactionPool';
 
 const MAX_FLOOR = 10;
 const BOSS_HP_MULTIPLIER = 1.5;
+const INITIAL_HEARTS = 5;
+/** 战斗失败后 HP 恢复至最大 HP 的比例（可配置，暂定 100%） */
+const DEFEAT_HP_RECOVERY_RATIO = 1.0;
 
 /**
  * 普通层的节点序列（6 个节点）。
@@ -95,6 +98,7 @@ export class RunManager {
             deck: [],
             relics: [],
             factionPool,
+            hearts: INITIAL_HEARTS,
             gold: 0,
             currentFloor: 1,
             currentCycle: firstNode.cycle,
@@ -200,7 +204,28 @@ export class RunManager {
         this._state.currentNode = node;
     }
 
-    /** 标记本局失败（玩家死亡） */
+    /**
+     * 处理战斗失败：消耗 1 颗心，恢复 HP。
+     * 心耗尽则标记本局结束。
+     *
+     * @returns 'continue' 表示还有心可以继续，'game_over' 表示心耗尽
+     */
+    handleBattleDefeat(): 'continue' | 'game_over' {
+        if (!this._state) return 'game_over';
+
+        this._state.hearts -= 1;
+
+        if (this._state.hearts <= 0) {
+            this._state.hearts = 0;
+            this._state.runStatus = RunStatus.DEFEAT;
+            return 'game_over';
+        }
+
+        this._state.currentHp = Math.round(this._state.maxHp * DEFEAT_HP_RECOVERY_RATIO);
+        return 'continue';
+    }
+
+    /** 标记本局失败（心耗尽） */
     markDefeat(): void {
         if (!this._state) return;
         this._state.runStatus = RunStatus.DEFEAT;

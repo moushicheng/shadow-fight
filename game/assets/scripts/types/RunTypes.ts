@@ -44,6 +44,8 @@ export interface RunState {
     relics: string[];
     /** 流派池 —— 每局随机抽取的流派列表，决定可获取的卡牌范围 */
     factionPool: Faction[];
+    /** 剩余心数（初始 5，战斗失败消耗 1 颗，归零则 Game Over） */
+    hearts: number;
     /** 当前金币 */
     gold: number;
     /** 当前层数（1-10），通关第 10 层即胜利 */
