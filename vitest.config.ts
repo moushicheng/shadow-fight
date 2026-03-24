@@ -7,6 +7,9 @@ export default defineConfig({
             'db://': path.resolve(__dirname, 'game/assets/scripts'),
         },
     },
+    esbuild: {
+        tsconfigRaw: '{}',
+    },
     test: {
         include: ['tests/**/*.test.ts'],
         globals: true,

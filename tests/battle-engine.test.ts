@@ -3,7 +3,7 @@
  *
  * 验证点：
  * 1. SPD 10 vs SPD 7 在 100 tick 内行动比精确为 10:7
- * 2. 霜蚀减速：24 层霜蚀 → SPD 8 角色冻结，每周期衰减 2 层后逐步解冻
+ * 2. 霜蚀减速：24 层霜蚀 → SPD 8 角色冻结（消耗全部霜蚀），周期结算时解冻
  * 3. 灼烧加成：火系卡牌伤害 + 目标灼烧层数
  * 4. MP 不足时跳过卡牌，卡组指针仍前进
  * 5. 同 tick 双方行动槽 ≥ 100 时，速度高者先手
@@ -91,55 +91,56 @@ describe('验证点 1：ATB 行动比与速度成正比', () => {
 // 验证点 2：霜蚀减速与冻结/解冻
 // ────────────────────────────────────────────────────────
 
-describe('验证点 2：霜蚀减速、冻结与解冻', () => {
+describe('验证点 2：霜蚀减速、冻结与解冻（新机制）', () => {
     const config = DEFAULT_BATTLE_CONFIG;
     const statusManager = new StatusManager(config);
 
-    it('24 层霜蚀让 SPD 8 角色冻结（有效速度 = 0）', () => {
-        // frostPerSpeedReduction = 3, 所以 24 层 → 减速 8
-        // baseSpeed 8 - 8 = 0 → 冻结
+    it('24 层霜蚀让 SPD 8 角色触发冻结（消耗全部霜蚀，设置 frozenUntilCycle）', () => {
         const combatant = makeCombatant({ baseSpeed: 8, frostStacks: 0 });
-        statusManager.applyStatus(combatant, StatusType.FROST, 24);
+        const result = statusManager.applyStatus(combatant, StatusType.FROST, 24, 0);
 
-        expect(combatant.frostStacks).toBe(24);
-        expect(getEffectiveSpeed(combatant, config)).toBe(0);
-        expect(isFrozen(combatant, config)).toBe(true);
+        expect(result.frozenTransition).toBe('frozen');
+        expect(result.frostConsumed).toBe(24);
+        expect(combatant.frostStacks).toBe(0);  
+        expect(combatant.frozenUntilCycle).toBe(1);
+        expect(isFrozen(combatant)).toBe(true);
     });
 
-    it('每周期衰减 1 层霜蚀，从 24 层逐步解冻', () => {
-        const combatant = makeCombatant({ baseSpeed: 8, frostStacks: 24 });
+    it('周期结算时解冻：frozenUntilCycle 到期后解除冻结', () => {
+        const combatant = makeCombatant({ baseSpeed: 8, frozenUntilCycle: 1 });
+        expect(isFrozen(combatant)).toBe(true);
 
-        // 24 层 → 减速 8 → 有效速度 0 → 冻结
-        expect(isFrozen(combatant, config)).toBe(true);
+        const result = statusManager.resolveUnfreeze(combatant, 1);
+        expect(result.unfrozen).toBe(true);
+        expect(combatant.frozenUntilCycle).toBe(-1);
+        expect(combatant.frostStacks).toBe(0);
+        expect(combatant.actionGauge).toBe(0);
+        expect(isFrozen(combatant)).toBe(false);
+    });
 
-        // 衰减 1 次：24 → 23 层, 减速 7 → 有效速度 1 → 解冻!
-        const decay1 = statusManager.resolveDecays(combatant);
-        expect(combatant.frostStacks).toBe(23);
-        expect(getEffectiveSpeed(combatant, config)).toBe(1);
-        expect(isFrozen(combatant, config)).toBe(false);
-        expect(decay1.some(d => d.unfreezeTransition === true)).toBe(true);
+    it('霜蚀不再自然衰减', () => {
+        const combatant = makeCombatant({ baseSpeed: 8, frostStacks: 15 });
+        const decays = statusManager.resolveDecays(combatant);
 
-        // 衰减 2 次：23 → 22, 减速 7 → 有效速度 1（仍在恢复中）
-        statusManager.resolveDecays(combatant);
-        expect(combatant.frostStacks).toBe(22);
-        expect(getEffectiveSpeed(combatant, config)).toBe(1);
-
-        // 衰减 3 次：22 → 21, 减速 7 → 有效速度 1
-        statusManager.resolveDecays(combatant);
-        expect(combatant.frostStacks).toBe(21);
-        expect(getEffectiveSpeed(combatant, config)).toBe(1);
-
-        // 衰减 4 次：21 → 20, 减速 6 → 有效速度 2
-        statusManager.resolveDecays(combatant);
-        expect(combatant.frostStacks).toBe(20);
-        expect(getEffectiveSpeed(combatant, config)).toBe(2);
+        expect(combatant.frostStacks).toBe(15);
+        expect(decays.find(d => d.statusType === StatusType.FROST)).toBeUndefined();
     });
 
     it('不足冻结阈值的霜蚀仅减速而不冻结', () => {
-        // SPD 8, 21 层霜蚀 → 减速 7 → 有效速度 1 → 不冻结
         const combatant = makeCombatant({ baseSpeed: 8, frostStacks: 21 });
         expect(getEffectiveSpeed(combatant, config)).toBe(1);
-        expect(isFrozen(combatant, config)).toBe(false);
+        expect(isFrozen(combatant)).toBe(false);
+    });
+
+    it('冻结期间霜蚀转伤害（1:1 走护甲）', () => {
+        const combatant = makeCombatant({ baseSpeed: 8, frozenUntilCycle: 2, currentHp: 100, armor: 5 });
+        const shatter = statusManager.applyFrostDuringFreeze(combatant, 10);
+
+        expect(shatter.frostStacks).toBe(10);
+        expect(shatter.rawDamage).toBe(10);
+        expect(shatter.armorAbsorbed).toBe(5);
+        expect(shatter.actualHpDamage).toBe(5);
+        expect(combatant.frostStacks).toBe(0);
     });
 
     it('冻结角色行动槽不增长', () => {
@@ -147,14 +148,12 @@ describe('验证点 2：霜蚀减速、冻结与解冻', () => {
         const registry = makeRegistry([attackCard]);
         const deck = [makeCardInstance('basic_attack')];
 
-        // 对手 SPD 8，24 层霜蚀 → 冻结
         const player = makeFighter('玩家', { baseSpeed: 10, currentHp: 9999, maxHp: 9999 }, [...deck]);
-        const opponent = makeFighter('对手', { baseSpeed: 8, frostStacks: 24, currentHp: 9999, maxHp: 9999 }, [...deck]);
+        const opponent = makeFighter('对手', { baseSpeed: 8, frozenUntilCycle: 99, currentHp: 9999, maxHp: 9999 }, [...deck]);
 
         const engine = new BattleEngine(player, opponent, registry, DEFAULT_BATTLE_CONFIG, 42);
         const state = engine.getState();
 
-        // 跑 10 tick，对手行动槽应该不增长
         for (let i = 0; i < 10; i++) {
             engine.runTick();
         }

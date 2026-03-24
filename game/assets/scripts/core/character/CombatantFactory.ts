@@ -23,6 +23,7 @@ export function createCombatant(base: PlayerBaseProperty): RuntimeCombatant {
         frostStacks: 0,
         burnStacks: 0,
         poisonStacks: 0,
+        frozenUntilCycle: -1,
 
         actionGauge: 0,
         deckIndex: 0,

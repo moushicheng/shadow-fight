@@ -9,7 +9,7 @@ export const ICE_CARDS: CardDef[] = [
         id: 'ice_snowball',
         name: '丢雪球',
         faction: Faction.ICE,
-        description: '造成 2 点伤害，施加 8 层霜蚀（减速 2）',
+        description: '造成 2 点伤害，施加 8 层霜蚀；冻结时转为 8 点伤害',
         rarity: CardRarity.NORMAL,
         cardType: CardType.SKILL,
         tags: [CardTag.FREEZE, CardTag.CHARGE],
@@ -31,7 +31,7 @@ export const ICE_CARDS: CardDef[] = [
         upgrade: {
             name: '丢雪球+',
             costReduction: 1,
-            enhancedDescription: '造成 3 点伤害，施加 10 层霜蚀（减速 3）',
+            enhancedDescription: '造成 3 点伤害，施加 10 层霜蚀；冻结时转为 10 点伤害',
             enhancedEffects: [
                 {
                     target: EffectTarget.ENEMY,
@@ -45,7 +45,7 @@ export const ICE_CARDS: CardDef[] = [
         id: 'ice_frost_blade',
         name: '寒霜之刃',
         faction: Faction.ICE,
-        description: '造成 10 点伤害，施加 3 层霜蚀（减速 1）',
+        description: '造成 10 点伤害，施加 3 层霜蚀',
         rarity: CardRarity.NORMAL,
         cardType: CardType.ATTACK,
         tags: [CardTag.FREEZE],
@@ -81,7 +81,7 @@ export const ICE_CARDS: CardDef[] = [
         id: 'ice_frost_shield',
         name: '寒冰护盾',
         faction: Faction.ICE,
-        description: '获得 12 点护甲，施加 3 层霜蚀（减速 1）',
+        description: '获得 12 点护甲，施加 3 层霜蚀',
         rarity: CardRarity.NORMAL,
         cardType: CardType.SKILL,
         tags: [CardTag.FREEZE],
@@ -111,7 +111,7 @@ export const ICE_CARDS: CardDef[] = [
         id: 'ice_frozen_domain',
         name: '冰封领域',
         faction: Faction.ICE,
-        description: '每次行动开始时，施加 3 层霜蚀（减速 1）',
+        description: '每次行动开始时，施加 3 层霜蚀',
         rarity: CardRarity.RARE,
         cardType: CardType.POWER,
         tags: [CardTag.FREEZE, CardTag.CHARGE],
@@ -144,7 +144,7 @@ export const ICE_CARDS: CardDef[] = [
         id: 'ice_biting_wind',
         name: '寒风凛冽',
         faction: Faction.ICE,
-        description: '施加 15 层霜蚀（减速 5）',
+        description: '施加 15 层霜蚀',
         rarity: CardRarity.RARE,
         cardType: CardType.SKILL,
         tags: [CardTag.FREEZE, CardTag.CHARGE],
@@ -162,7 +162,7 @@ export const ICE_CARDS: CardDef[] = [
         upgrade: {
             name: '寒风凛冽+',
             costReduction: 1,
-            enhancedDescription: '施加 20 层霜蚀（减速 6）',
+            enhancedDescription: '施加 20 层霜蚀',
             enhancedEffects: [
                 { target: EffectTarget.ENEMY, status: { type: StatusType.FROST, stacks: 20 } },
             ],
@@ -172,7 +172,7 @@ export const ICE_CARDS: CardDef[] = [
         id: 'ice_frost_nova',
         name: '霜冻新星',
         faction: Faction.ICE,
-        description: '施加 10 层霜蚀（减速 3），获得 8 点护甲',
+        description: '施加 10 层霜蚀，获得 8 点护甲',
         rarity: CardRarity.RARE,
         cardType: CardType.SKILL,
         tags: [CardTag.FREEZE],
@@ -238,7 +238,7 @@ export const ICE_CARDS: CardDef[] = [
         id: 'ice_blizzard',
         name: '极寒风暴',
         faction: Faction.ICE,
-        description: '施加 24 层霜蚀（减速 8）',
+        description: '施加 24 层霜蚀',
         rarity: CardRarity.EPIC,
         cardType: CardType.SKILL,
         tags: [CardTag.FREEZE, CardTag.CHARGE],
@@ -256,7 +256,7 @@ export const ICE_CARDS: CardDef[] = [
         upgrade: {
             name: '极寒风暴+',
             costReduction: 1,
-            enhancedDescription: '施加 30 层霜蚀（减速 10）',
+            enhancedDescription: '施加 30 层霜蚀',
             enhancedEffects: [
                 { target: EffectTarget.ENEMY, status: { type: StatusType.FROST, stacks: 30 } },
             ],
@@ -266,7 +266,7 @@ export const ICE_CARDS: CardDef[] = [
         id: 'ice_absolute_zero',
         name: '绝对零度',
         faction: Faction.ICE,
-        description: '造成 15 点伤害；若敌方处于冻结状态，则改为造成 50 点伤害',
+        description: '造成 15 点伤害；若敌方处于冻结状态，额外造成 35 点伤害',
         rarity: CardRarity.EPIC,
         cardType: CardType.ATTACK,
         tags: [CardTag.FREEZE, CardTag.FINISHER],
@@ -288,7 +288,7 @@ export const ICE_CARDS: CardDef[] = [
         upgrade: {
             name: '绝对零度+',
             costReduction: 1,
-            enhancedDescription: '造成 20 点伤害；若敌方冻结则造成 65 点伤害',
+            enhancedDescription: '造成 20 点伤害；若敌方冻结额外造成 45 点伤害',
             enhancedEffects: [
                 {
                     target: EffectTarget.ENEMY,
@@ -302,7 +302,7 @@ export const ICE_CARDS: CardDef[] = [
         id: 'ice_eternal_winter',
         name: '永冬',
         faction: Faction.ICE,
-        description: '敌方霜蚀不再自然衰减；每次行动开始时施加 3 层霜蚀',
+        description: '每次行动开始时施加 5 层霜蚀；冻结期间霜蚀转伤害翻倍（×2）',
         rarity: CardRarity.LEGENDARY,
         cardType: CardType.POWER,
         tags: [CardTag.FREEZE],
@@ -319,8 +319,7 @@ export const ICE_CARDS: CardDef[] = [
             trigger: PowerTrigger.TURN_START,
             effect: {
                 target: EffectTarget.ENEMY,
-                status: { type: StatusType.FROST, stacks: 3 },
-                special: { type: 'FROST_NO_DECAY', params: {} },
+                status: { type: StatusType.FROST, stacks: 5 },
             },
             stackable: false,
             maxStacks: 1,
@@ -328,7 +327,7 @@ export const ICE_CARDS: CardDef[] = [
         upgrade: {
             name: '永冬+',
             costReduction: 1,
-            enhancedDescription: '敌方霜蚀不再衰减；每次行动施加 5 层霜蚀',
+            enhancedDescription: '每次行动施加 7 层霜蚀；冻结期间霜蚀转伤害翻倍（×2）',
             enhancedEffects: [],
         },
     },

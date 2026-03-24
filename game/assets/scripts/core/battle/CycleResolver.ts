@@ -29,7 +29,7 @@ export interface CycleResolveResult {
     /** 毒药结算后是否有角色死亡（为 true 时后续阶段不执行） */
     deathAfterPoison: boolean;
 
-    /** 阶段 2：状态衰减（霜蚀 -2/周期，毒药 -1/周期） */
+    /** 阶段 2：状态衰减（毒药 -1/周期；霜蚀不衰减） */
     playerDecays: StatusDecayResult[];
     opponentDecays: StatusDecayResult[];
 
@@ -52,8 +52,9 @@ export interface CycleResolveResult {
  * 周期结算器。
  *
  * 每 100 tick 触发一次，按固定顺序执行：
+ *   0. 解冻（由 BattleEngine 在调用 resolve 前执行）
  *   1. 毒药伤害（双方各受 = 毒药层数的伤害，无视护甲）
- *   2. 状态衰减（霜蚀 -2/周期，毒药 -1/周期；灼烧不自然衰减）
+ *   2. 状态衰减（毒药 -1/周期；霜蚀不自然衰减，灼烧不自然衰减）
  *   3. MP 回复（双方各 +1，不超上限）
  *   4. 加时伤害（若已进入加时阶段，双方受 1 + (cycle - 100) × 2 递增伤害）
  *   5. 超时判定（cycle ≥ 200 → 强制平局）

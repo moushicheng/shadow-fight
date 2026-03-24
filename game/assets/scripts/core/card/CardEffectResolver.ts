@@ -7,7 +7,7 @@ import {
 } from '../../types/CardTypes';
 import { RuntimeCombatant } from '../../types/CharacterTypes';
 import { BattleConfig } from '../../types/BattleTypes';
-import { getHpPercent, getEffectiveAttack, healHp, recoverMp, gainArmor } from '../character/EffectiveStats';
+import { getHpPercent, getEffectiveAttack, healHp, recoverMp, gainArmor, isFrozen } from '../character/EffectiveStats';
 import { DamageCalculator } from '../battle/DamageCalculator';
 import { StatusManager } from '../battle/StatusManager';
 import { SeededRandom } from '../utils/SeededRandom';
@@ -119,7 +119,7 @@ export class CardEffectResolver {
             results.push(...this.resolveHeal(effect));
         }
         if (effect.status) {
-            results.push(this.resolveStatus(effect, receiver));
+            results.push(...this.resolveStatus(effect, receiver));
         }
         if (effect.drain) {
             results.push(this.resolveDrain(effect));
@@ -247,15 +247,40 @@ export class CardEffectResolver {
 
     // ─── 状态效果解析 ──────────────────────────────────
 
-    private resolveStatus(effect: CardEffect, receiver: RuntimeCombatant): EffectResult {
+    private resolveStatus(effect: CardEffect, receiver: RuntimeCombatant): EffectResult[] {
         const statusEff = effect.status!;
-        const result = this.ctx.statusManager.applyStatus(receiver, statusEff.type, statusEff.stacks);
 
-        return {
+        if (statusEff.type === StatusType.FROST && isFrozen(receiver)) {
+            const multiplier = this.getEternalWinterMultiplier();
+            const shatter = this.ctx.statusManager.applyFrostDuringFreeze(
+                receiver, statusEff.stacks, multiplier,
+            );
+            return [{
+                type: EffectResultType.SPECIAL,
+                value: shatter.actualHpDamage,
+                detail: 'FROST_SHATTER',
+            }];
+        }
+
+        const result = this.ctx.statusManager.applyStatus(
+            receiver, statusEff.type, statusEff.stacks, this.ctx.cycleCount,
+        );
+
+        const results: EffectResult[] = [{
             type: EffectResultType.STATUS_APPLY,
             value: result.stacksApplied,
             detail: statusEff.type,
-        };
+        }];
+
+        if (result.frozenTransition === 'frozen' && result.frostConsumed) {
+            results.push({
+                type: EffectResultType.SPECIAL,
+                value: result.frostConsumed,
+                detail: 'FREEZE_TRIGGER',
+            });
+        }
+
+        return results;
     }
 
     // ─── 汲取解析 ──────────────────────────────────────
@@ -362,6 +387,29 @@ export class CardEffectResolver {
                 const multiplier = (specialEff.params['multiplier'] as number) ?? 1.5;
                 const result = this.ctx.statusManager.detonate(target, multiplier);
                 return { type: EffectResultType.SPECIAL, value: result.actualHpDamage, detail: 'DETONATE' };
+            }
+
+            case 'FROST_SCALING': {
+                const perStack = (specialEff.params['perStack'] as number) ?? 0.5;
+                const bonusDmg = Math.floor(target.frostStacks * perStack);
+                if (bonusDmg > 0) {
+                    const dmgResult = DamageCalculator.applyRawDamage(bonusDmg, target, false);
+                    return { type: EffectResultType.SPECIAL, value: dmgResult.actualHpDamage, detail: 'FROST_SCALING' };
+                }
+                return { type: EffectResultType.SPECIAL, value: 0, detail: 'FROST_SCALING' };
+            }
+
+            case 'FROZEN_BONUS_DAMAGE': {
+                const bonusDamage = (specialEff.params['bonusDamage'] as number) ?? 0;
+                if (isFrozen(target) && bonusDamage > 0) {
+                    const dmgResult = DamageCalculator.applyRawDamage(bonusDamage, target, false);
+                    return { type: EffectResultType.SPECIAL, value: dmgResult.actualHpDamage, detail: 'FROZEN_BONUS_DAMAGE' };
+                }
+                return { type: EffectResultType.SPECIAL, value: 0, detail: 'FROZEN_BONUS_DAMAGE' };
+            }
+
+            case 'FROST_NO_DECAY': {
+                return { type: EffectResultType.SPECIAL, value: 0, detail: 'FROST_NO_DECAY' };
             }
 
             case 'CONVERT_ATTRIBUTE': {
@@ -483,6 +531,14 @@ export class CardEffectResolver {
 
         if (to === 'SPD') c.baseSpeed += amount;
         else if (to === 'STR' || to === 'ATK') c.attack += amount;
+    }
+
+    /** 检查施法者是否激活了永冬（ice_eternal_winter），返回霜蚀转伤害倍率 */
+    private getEternalWinterMultiplier(): number {
+        const hasEternalWinter = this.ctx.caster.activePowers.some(
+            p => p.cardId === 'ice_eternal_winter',
+        );
+        return hasEternalWinter ? 2 : 1;
     }
 
     // ─── 工具方法 ──────────────────────────────────────

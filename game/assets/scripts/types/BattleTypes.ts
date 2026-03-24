@@ -79,6 +79,8 @@ export enum BattleLogType {
     FREEZE = 'FREEZE',
     /** 解除冻结 */
     UNFREEZE = 'UNFREEZE',
+    /** 冻结期间霜蚀转化为伤害 */
+    FROST_SHATTER = 'FROST_SHATTER',
     /** 加时伤害（100 周期后递增） */
     OVERTIME_DAMAGE = 'OVERTIME_DAMAGE',
     /** 战斗结束 */
@@ -119,7 +121,7 @@ export const DEFAULT_BATTLE_CONFIG: BattleConfig = {
     gaugeThreshold: 100,         // 行动槽阈值 —— 行动槽 ≥ 此值时执行行动
     ticksPerCycle: 10,           // 每10tick=1周期（≈1回合，SPD10角色每周期行动1次）
     frostPerSpeedReduction: 3,   // 每 3 层霜蚀 = -1 speed
-    frostDecayPerCycle: 1,       // 每周期 -1 层（1周期≈1回合，衰减更慢以保证冰系控制力）
+    frostDecayPerCycle: 0,       // 霜蚀不再自然衰减（冻结触发时清零）
     poisonDecayPerCycle: 1,      // 每周期 -1 层
     mpRecoveryPerCycle: 1,       // 每周期 +1 MP
     overtimeStartCycle: 20,      // 第 20 周期开始加时（SPD10约20次行动）

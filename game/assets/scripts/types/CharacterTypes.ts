@@ -21,7 +21,8 @@ export interface PlayerBaseProperty {
  * 每场战斗开始时从 PlayerBaseProperty 初始化，战斗过程中实时变化。
  *
  * effective_speed = baseSpeed + sumBuff(SPEED_BONUS) - sumBuff(SPEED_DEBUFF) - floor(frostStacks / 3)
- * effective_speed ≤ 0 时进入冻结状态，行动槽停止增长。
+ * effective_speed ≤ 0 时触发冻结（消耗全部霜蚀，冻结持续到下一周期开始）。
+ * 冻结期间新施加的霜蚀 1:1 转化为伤害（走护甲）。
  */
 export interface RuntimeCombatant {
     /** 当前 HP —— 每场战斗结束后回满至 maxHp（保证对阵残影时的公平性） */
@@ -39,12 +40,18 @@ export interface RuntimeCombatant {
     /** 当前护甲 —— 每场战斗清零（遗物可在开始时叠加），受击先扣甲再扣 HP */
     armor: number;
 
-    /** 霜蚀层数 —— 每 3 层 = 速度 -1，每周期衰减 2 层 */
+    /** 霜蚀层数 —— 每 3 层 = 速度 -1，不自然衰减；触发冻结时清零 */
     frostStacks: number;
     /** 灼烧层数 —— 火系额外伤害 + 层数，不自然衰减，引爆后清零 */
     burnStacks: number;
     /** 毒药层数 —— 每周期造成等量伤害（无视护甲），每周期衰减 1 层 */
     poisonStacks: number;
+
+    /**
+     * 冻结持续到哪个周期结束（-1 = 未冻结）。
+     * 冻结在该周期的周期结算开始时解除。
+     */
+    frozenUntilCycle: number;
 
     /** ATB 行动槽 —— 每 tick += effectiveSpeed，≥ 100 时触发行动后 -= 100 */
     actionGauge: number;

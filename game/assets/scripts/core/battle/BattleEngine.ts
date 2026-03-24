@@ -1,5 +1,5 @@
 import {
-    BattleState, BattleFighter, BattleConfig, DEFAULT_BATTLE_CONFIG,
+    BattleState, BattleFighter, BattleConfig, BattleLogType, DEFAULT_BATTLE_CONFIG,
 } from '../../types/BattleTypes';
 import { CardDef, CardEffect, CardInstance } from '../../types/CardTypes';
 import { RuntimeCombatant } from '../../types/CharacterTypes';
@@ -187,10 +187,10 @@ export class BattleEngine {
         const pc = this.state.player.combatant;
         const oc = this.state.opponent.combatant;
 
-        if (!isFrozen(pc, this.config)) {
+        if (!isFrozen(pc)) {
             pc.actionGauge += getEffectiveSpeed(pc, this.config);
         }
-        if (!isFrozen(oc, this.config)) {
+        if (!isFrozen(oc)) {
             oc.actionGauge += getEffectiveSpeed(oc, this.config);
         }
     }
@@ -294,7 +294,7 @@ export class BattleEngine {
 
         this.logger.logPlayCard(side, fighter.name, cardDef.name, cardDef.id, actualCost);
 
-        const targetWasFrozen = this.statusManager.isFrozen(enemy.combatant);
+        const targetWasFrozen = isFrozen(enemy.combatant);
 
         const ctx: ResolveContext = {
             caster: combatant,
@@ -313,8 +313,8 @@ export class BattleEngine {
         const results = resolver.resolve(cardDef.effects);
         this.logger.logEffectResults(side, results, fighter.name, enemy.name);
 
-        if (!targetWasFrozen && this.statusManager.isFrozen(enemy.combatant)) {
-            this.logger.logFreeze(side, enemy.name, enemy.combatant.frostStacks);
+        if (!targetWasFrozen && isFrozen(enemy.combatant)) {
+            this.logger.logFreeze(side, enemy.name, enemy.combatant.frozenUntilCycle);
         }
 
         this.triggerPowers(side, PowerTrigger.ON_PLAY_CARD);
@@ -402,6 +402,21 @@ export class BattleEngine {
         this.state.cycleCount++;
         const cycle = this.state.cycleCount;
         this.logger.setTime(this.state.tickCount, cycle);
+
+        const playerUnfreeze = this.statusManager.resolveUnfreeze(
+            this.state.player.combatant, cycle,
+        );
+        const opponentUnfreeze = this.statusManager.resolveUnfreeze(
+            this.state.opponent.combatant, cycle,
+        );
+        if (playerUnfreeze.unfrozen) {
+            this.logger.add('system', BattleLogType.UNFREEZE,
+                `${this.state.player.name} 解除冻结`, {});
+        }
+        if (opponentUnfreeze.unfrozen) {
+            this.logger.add('system', BattleLogType.UNFREEZE,
+                `${this.state.opponent.name} 解除冻结`, {});
+        }
 
         const result = this.cycleResolver.resolve(
             this.state.player.combatant,

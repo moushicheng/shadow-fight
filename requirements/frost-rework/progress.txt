@@ -1,0 +1,8 @@
+[2026-03-24 14:00] 开始: 霜蚀机制重做
+[2026-03-24 14:00] 决策: 冻结触发清零霜蚀 + 1周期冻结 + 霜蚀转伤害1:1走护甲（用户确认）
+[2026-03-24 14:00] 下一步: 从类型层开始改动，依次改 StatusManager → CardEffectResolver → BattleEngine → CycleResolver → 卡牌数据
+[2026-03-24 16:15] 完成: 全部代码改动（CharacterTypes/BattleTypes/EffectiveStats/StatusManager/CardEffectResolver/BattleEngine/CycleResolver/ice.ts）
+[2026-03-24 16:15] 完成: 测试更新（18/18 通过），文档更新（battle-base.md §2.6/§3.2/§7.1/§11.2）
+[2026-03-24 16:15] 决策: 永冬重设计为"每回合+5霜蚀 + 冻结期间霜蚀转伤害×2"，通过检查 activePowers 中的 ice_eternal_winter 实现
+[2026-03-24 16:15] 决策: 修复 vitest.config.ts 的 tsconfig 问题（esbuild.tsconfigRaw='{}' 绕过 Cocos temp tsconfig）
+[2026-03-24 16:15] 完成: 需求完成，291/292 测试通过（1 个失败是预存在的 monster-generator 问题）

@@ -21,8 +21,13 @@ export function getEffectiveSpeed(
     return Math.max(0, raw);
 }
 
-/** 是否处于冻结状态 */
-export function isFrozen(
+/** 是否处于冻结状态（检查显式冻结标记，而非实时速度计算） */
+export function isFrozen(c: RuntimeCombatant): boolean {
+    return c.frozenUntilCycle >= 0;
+}
+
+/** 霜蚀是否足以触发冻结（effective_speed ≤ 0） */
+export function wouldFreeze(
     c: RuntimeCombatant,
     config: BattleConfig = DEFAULT_BATTLE_CONFIG,
 ): boolean {

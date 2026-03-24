@@ -2,7 +2,11 @@ import { StatusType, BuffType } from '../../types/Enums';
 import { RuntimeCombatant } from '../../types/CharacterTypes';
 import { BattleConfig, DEFAULT_BATTLE_CONFIG } from '../../types/BattleTypes';
 import { DamageCalculator } from './DamageCalculator';
-import { getEffectiveSpeed } from '../character/EffectiveStats';
+import {
+    getEffectiveSpeed,
+    isFrozen as checkFrozenState,
+    wouldFreeze,
+} from '../character/EffectiveStats';
 
 // ─── 事件结果类型 ────────────────────────────────────────
 
@@ -11,8 +15,23 @@ export interface StatusApplyResult {
     statusType: StatusType;
     stacksApplied: number;
     totalStacks: number;
-    /** 施加后是否导致冻结状态变化 */
+    /** 施加后是否触发了冻结（消耗全部霜蚀） */
     frozenTransition?: 'frozen' | 'none';
+    /** 冻结触发时消耗的霜蚀层数 */
+    frostConsumed?: number;
+}
+
+/** 冻结期间霜蚀转伤害的结果 */
+export interface FrostShatterResult {
+    frostStacks: number;
+    rawDamage: number;
+    armorAbsorbed: number;
+    actualHpDamage: number;
+}
+
+/** 解冻结果 */
+export interface UnfreezeResult {
+    unfrozen: boolean;
 }
 
 /** 状态衰减结果 */
@@ -66,11 +85,19 @@ export class StatusManager {
 
     /**
      * 施加状态层数到目标身上。
-     * 霜蚀无硬上限（速度到 0 后继续叠只延长冻结时间）。
      *
-     * @see battle-base.md §7.1
+     * 霜蚀特殊规则：
+     * - 施加后若 effective_speed ≤ 0 → 触发冻结，消耗全部霜蚀，设置 frozenUntilCycle
+     * - 冻结期间不应通过此方法施加霜蚀（调用方应先用 applyFrostDuringFreeze 转伤害）
+     *
+     * @param currentCycle 当前周期数（冻结需要知道冻到哪个周期）
      */
-    applyStatus(target: RuntimeCombatant, type: StatusType, stacks: number): StatusApplyResult {
+    applyStatus(
+        target: RuntimeCombatant,
+        type: StatusType,
+        stacks: number,
+        currentCycle: number = 0,
+    ): StatusApplyResult {
         if (stacks <= 0) {
             return {
                 statusType: type,
@@ -78,8 +105,6 @@ export class StatusManager {
                 totalStacks: this.getStacks(target, type),
             };
         }
-
-        const wasFrozen = this.isFrozen(target);
 
         switch (type) {
             case StatusType.FROST:
@@ -93,9 +118,13 @@ export class StatusManager {
                 break;
         }
 
-        const nowFrozen = this.isFrozen(target);
         let frozenTransition: 'frozen' | 'none' = 'none';
-        if (!wasFrozen && nowFrozen) {
+        let frostConsumed = 0;
+
+        if (type === StatusType.FROST && !checkFrozenState(target) && wouldFreeze(target, this.config)) {
+            frostConsumed = target.frostStacks;
+            target.frostStacks = 0;
+            target.frozenUntilCycle = currentCycle + 1;
             frozenTransition = 'frozen';
         }
 
@@ -104,6 +133,31 @@ export class StatusManager {
             stacksApplied: stacks,
             totalStacks: this.getStacks(target, type),
             frozenTransition,
+            frostConsumed,
+        };
+    }
+
+    /**
+     * 冻结期间施加霜蚀 → 转化为伤害（走护甲结算）。
+     * @param multiplier 伤害倍率，默认 1（永冬效果下为 2）
+     */
+    applyFrostDuringFreeze(
+        target: RuntimeCombatant,
+        stacks: number,
+        multiplier: number = 1,
+    ): FrostShatterResult {
+        if (stacks <= 0 || !checkFrozenState(target)) {
+            return { frostStacks: 0, rawDamage: 0, armorAbsorbed: 0, actualHpDamage: 0 };
+        }
+
+        const rawDamage = Math.floor(stacks * multiplier);
+        const dmgResult = DamageCalculator.applyRawDamage(rawDamage, target, false);
+
+        return {
+            frostStacks: stacks,
+            rawDamage,
+            armorAbsorbed: dmgResult.armorAbsorbed,
+            actualHpDamage: dmgResult.actualHpDamage,
         };
     }
 
@@ -142,6 +196,7 @@ export class StatusManager {
         target.frostStacks = 0;
         target.burnStacks = 0;
         target.poisonStacks = 0;
+        target.frozenUntilCycle = -1;
     }
 
     // ─── 周期结算 ────────────────────────────────────────
@@ -192,22 +247,13 @@ export class StatusManager {
     }
 
     /**
-     * 周期状态衰减：霜蚀 -2/周期，毒药 -1/周期（先伤害后衰减）。
-     * 灼烧不自然衰减。
+     * 周期状态衰减：毒药 -1/周期（先伤害后衰减）。
+     * 霜蚀不再自然衰减。灼烧不自然衰减。
      *
      * @see battle-base.md §3.2, §7.1
      */
     resolveDecays(target: RuntimeCombatant): StatusDecayResult[] {
         const results: StatusDecayResult[] = [];
-
-        if (target.frostStacks > 0) {
-            const r = this.removeStacks(target, StatusType.FROST, this.config.frostDecayPerCycle);
-            results.push(r);
-
-            if (r.unfreezeTransition) {
-                target.actionGauge = 0;
-            }
-        }
 
         if (target.poisonStacks > 0) {
             const r = this.removeStacks(target, StatusType.POISON, this.config.poisonDecayPerCycle);
@@ -215,6 +261,20 @@ export class StatusManager {
         }
 
         return results;
+    }
+
+    /**
+     * 周期开始时检查并执行解冻。
+     * 若 frozenUntilCycle <= currentCycle，解除冻结并重置行动槽。
+     */
+    resolveUnfreeze(target: RuntimeCombatant, currentCycle: number): UnfreezeResult {
+        if (target.frozenUntilCycle >= 0 && currentCycle >= target.frozenUntilCycle) {
+            target.frozenUntilCycle = -1;
+            target.frostStacks = 0;
+            target.actionGauge = 0;
+            return { unfrozen: true };
+        }
+        return { unfrozen: false };
     }
 
     // ─── 灼烧引爆 ────────────────────────────────────────
@@ -260,9 +320,9 @@ export class StatusManager {
         return Math.floor(target.frostStacks / this.config.frostPerSpeedReduction);
     }
 
-    /** 是否处于冻结状态（有效速度 ≤ 0） */
+    /** 是否处于冻结状态（检查显式冻结标记） */
     isFrozen(target: RuntimeCombatant): boolean {
-        return getEffectiveSpeed(target, this.config) <= 0;
+        return checkFrozenState(target);
     }
 
     /** 是否有任何状态效果 */
@@ -277,7 +337,8 @@ export class StatusManager {
             burn: target.burnStacks,
             poison: target.poisonStacks,
             frostSpeedReduction: this.getFrostSpeedReduction(target),
-            isFrozen: this.isFrozen(target),
+            isFrozen: checkFrozenState(target),
+            frozenUntilCycle: target.frozenUntilCycle,
         };
     }
 
@@ -308,4 +369,5 @@ export interface StatusSummary {
     poison: number;
     frostSpeedReduction: number;
     isFrozen: boolean;
+    frozenUntilCycle: number;
 }
