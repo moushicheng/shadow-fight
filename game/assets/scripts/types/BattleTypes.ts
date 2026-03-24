@@ -104,7 +104,7 @@ export interface BattleConfig {
     ticksPerCycle: number;
     /** 霜蚀减速系数 —— 每 N 层霜蚀 = effective_speed -1 */
     frostPerSpeedReduction: number;
-    /** 霜蚀每周期衰减层数 */
+    /** 霜蚀每周期衰减层数（冻结期间不衰减，仅蓄力阶段衰减） */
     frostDecayPerCycle: number;
     /** 毒药每周期衰减层数（先伤害后衰减） */
     poisonDecayPerCycle: number;
@@ -121,7 +121,7 @@ export const DEFAULT_BATTLE_CONFIG: BattleConfig = {
     gaugeThreshold: 100,         // 行动槽阈值 —— 行动槽 ≥ 此值时执行行动
     ticksPerCycle: 10,           // 每10tick=1周期（≈1回合，SPD10角色每周期行动1次）
     frostPerSpeedReduction: 3,   // 每 3 层霜蚀 = -1 speed
-    frostDecayPerCycle: 0,       // 霜蚀不再自然衰减（冻结触发时清零）
+    frostDecayPerCycle: 2,       // 每周期 -2 层（蓄力阶段衰减，冻结期间不衰减）
     poisonDecayPerCycle: 1,      // 每周期 -1 层
     mpRecoveryPerCycle: 1,       // 每周期 +1 MP
     overtimeStartCycle: 20,      // 第 20 周期开始加时（SPD10约20次行动）

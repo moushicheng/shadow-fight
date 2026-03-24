@@ -118,11 +118,22 @@ describe('验证点 2：霜蚀减速、冻结与解冻（新机制）', () => {
         expect(isFrozen(combatant)).toBe(false);
     });
 
-    it('霜蚀不再自然衰减', () => {
-        const combatant = makeCombatant({ baseSpeed: 8, frostStacks: 15 });
+    it('蓄力阶段霜蚀每周期衰减 frostDecayPerCycle 层', () => {
+        const initialFrost = 15;
+        const combatant = makeCombatant({ baseSpeed: 8, frostStacks: initialFrost });
         const decays = statusManager.resolveDecays(combatant);
 
-        expect(combatant.frostStacks).toBe(15);
+        expect(combatant.frostStacks).toBe(initialFrost - config.frostDecayPerCycle);
+        const frostDecay = decays.find(d => d.statusType === StatusType.FROST);
+        expect(frostDecay).toBeDefined();
+        expect(frostDecay!.decayed).toBe(config.frostDecayPerCycle);
+    });
+
+    it('冻结期间霜蚀不衰减', () => {
+        const combatant = makeCombatant({ baseSpeed: 8, frostStacks: 5, frozenUntilCycle: 3 });
+        const decays = statusManager.resolveDecays(combatant);
+
+        expect(combatant.frostStacks).toBe(5);
         expect(decays.find(d => d.statusType === StatusType.FROST)).toBeUndefined();
     });
 

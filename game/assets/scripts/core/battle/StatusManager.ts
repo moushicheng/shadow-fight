@@ -247,13 +247,18 @@ export class StatusManager {
     }
 
     /**
-     * 周期状态衰减：毒药 -1/周期（先伤害后衰减）。
-     * 霜蚀不再自然衰减。灼烧不自然衰减。
+     * 周期状态衰减：霜蚀 -N/周期（仅蓄力阶段，冻结期间不衰减），毒药 -1/周期。
+     * 灼烧不自然衰减。
      *
      * @see battle-base.md §3.2, §7.1
      */
     resolveDecays(target: RuntimeCombatant): StatusDecayResult[] {
         const results: StatusDecayResult[] = [];
+
+        if (target.frostStacks > 0 && !checkFrozenState(target) && this.config.frostDecayPerCycle > 0) {
+            const r = this.removeStacks(target, StatusType.FROST, this.config.frostDecayPerCycle);
+            results.push(r);
+        }
 
         if (target.poisonStacks > 0) {
             const r = this.removeStacks(target, StatusType.POISON, this.config.poisonDecayPerCycle);

@@ -40,7 +40,7 @@ export interface RuntimeCombatant {
     /** 当前护甲 —— 每场战斗清零（遗物可在开始时叠加），受击先扣甲再扣 HP */
     armor: number;
 
-    /** 霜蚀层数 —— 每 3 层 = 速度 -1，不自然衰减；触发冻结时清零 */
+    /** 霜蚀层数 —— 每 3 层 = 速度 -1，每周期衰减 N 层（冻结期间不衰减）；触发冻结时清零 */
     frostStacks: number;
     /** 灼烧层数 —— 火系额外伤害 + 层数，不自然衰减，引爆后清零 */
     burnStacks: number;
