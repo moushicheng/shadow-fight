@@ -4,7 +4,7 @@
  * 验证点：
  * 1. SPD 10 vs SPD 7 在 100 tick 内行动比精确为 10:7
  * 2. 霜蚀减速：24 层霜蚀 → SPD 8 角色冻结（消耗全部霜蚀），周期结算时解冻
- * 3. 灼烧加成：火系卡牌伤害 + 目标灼烧层数
+ * 3. 灼烧增伤：每层灼烧使目标受到的所有伤害 +1%（通用，不限流派）
  * 4. MP 不足时跳过卡牌，卡组指针仍前进
  * 5. 同 tick 双方行动槽 ≥ 100 时，速度高者先手
  */
@@ -174,79 +174,78 @@ describe('验证点 2：霜蚀减速、冻结与解冻（新机制）', () => {
 });
 
 // ────────────────────────────────────────────────────────
-// 验证点 3：灼烧加成 — 火系卡牌伤害 + 目标灼烧层数
+// 验证点 3：灼烧增伤 — 每层灼烧 +1% 伤害（适用于所有攻击）
 // ────────────────────────────────────────────────────────
 
-describe('验证点 3：灼烧加成', () => {
-    it('火系卡牌伤害 = 基础伤害 + 目标灼烧层数', () => {
+describe('验证点 3：灼烧增伤（通用百分比）', () => {
+    const burnPercent = DEFAULT_BATTLE_CONFIG.burnDamagePercentPerStack; // 0.01
+
+    it('20 层灼烧 → 所有攻击伤害 +20%', () => {
         const caster = makeCombatant({ attack: 10 });
-        const target = makeCombatant({ armor: 0, burnStacks: 8 });
-
-        const baseDamage = 10;
-        const result = DamageCalculator.applyDamage(
-            baseDamage,
-            caster,
-            target,
-            Faction.FIRE,
-            target.burnStacks,
-            false,
-        );
-
-        // 10 + 8(灼烧层数) = 18
-        expect(result.finalDamage).toBe(18);
-        expect(result.actualHpDamage).toBe(18);
-    });
-
-    it('非火系卡牌不享受灼烧加成', () => {
-        const caster = makeCombatant({ attack: 10 });
-        const target = makeCombatant({ armor: 0, burnStacks: 8 });
+        const target = makeCombatant({ armor: 0, burnStacks: 20 });
 
         const result = DamageCalculator.applyDamage(
-            10,
-            caster,
-            target,
-            Faction.ICE,
-            target.burnStacks,
-            false,
+            10, caster, target,
+            target.burnStacks, burnPercent, false,
         );
 
-        expect(result.finalDamage).toBe(10);
-        expect(result.actualHpDamage).toBe(10);
+        // 10 × (1 + 20 × 0.01) = 10 × 1.20 = 12
+        expect(result.finalDamage).toBe(12);
+        expect(result.actualHpDamage).toBe(12);
     });
 
-    it('灼烧层数为 0 时火系卡牌无额外伤害', () => {
+    it('灼烧增伤对任何流派的攻击生效（非火系同样受益）', () => {
+        const caster = makeCombatant({ attack: 10 });
+        const target = makeCombatant({ armor: 0, burnStacks: 50 });
+
+        const result = DamageCalculator.applyDamage(
+            10, caster, target,
+            target.burnStacks, burnPercent, false,
+        );
+
+        // 10 × (1 + 50 × 0.01) = 10 × 1.50 = 15
+        expect(result.finalDamage).toBe(15);
+        expect(result.actualHpDamage).toBe(15);
+    });
+
+    it('灼烧层数为 0 时无额外伤害', () => {
         const caster = makeCombatant({ attack: 10 });
         const target = makeCombatant({ armor: 0, burnStacks: 0 });
 
         const result = DamageCalculator.applyDamage(
-            10,
-            caster,
-            target,
-            Faction.FIRE,
-            target.burnStacks,
-            false,
+            10, caster, target,
+            target.burnStacks, burnPercent, false,
         );
 
         expect(result.finalDamage).toBe(10);
     });
 
-    it('灼烧加成后伤害仍经过护甲结算', () => {
+    it('灼烧增伤后伤害仍经过护甲结算', () => {
         const caster = makeCombatant({ attack: 10 });
-        const target = makeCombatant({ armor: 5, burnStacks: 8 });
+        const target = makeCombatant({ armor: 5, burnStacks: 20 });
 
         const result = DamageCalculator.applyDamage(
-            10,
-            caster,
-            target,
-            Faction.FIRE,
-            target.burnStacks,
-            false,
+            10, caster, target,
+            target.burnStacks, burnPercent, false,
         );
 
-        // 10 + 8 = 18, 护甲吸收 5 → 实际 HP 伤害 13
-        expect(result.finalDamage).toBe(18);
+        // 10 × 1.20 = 12, 护甲吸收 5 → 实际 HP 伤害 7
+        expect(result.finalDamage).toBe(12);
         expect(result.armorAbsorbed).toBe(5);
-        expect(result.actualHpDamage).toBe(13);
+        expect(result.actualHpDamage).toBe(7);
+    });
+
+    it('burnDamagePercentPerStack 可配置（如 2%/层）', () => {
+        const caster = makeCombatant({ attack: 10 });
+        const target = makeCombatant({ armor: 0, burnStacks: 20 });
+
+        const result = DamageCalculator.applyDamage(
+            10, caster, target,
+            target.burnStacks, 0.02, false,
+        );
+
+        // 10 × (1 + 20 × 0.02) = 10 × 1.40 = 14
+        expect(result.finalDamage).toBe(14);
     });
 });
 

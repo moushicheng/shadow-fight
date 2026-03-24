@@ -1,4 +1,4 @@
-import { Attribute, BuffType, Faction } from '../../types/Enums';
+import { Attribute, BuffType } from '../../types/Enums';
 import { DamageEffect } from '../../types/CardTypes';
 import { RuntimeCombatant } from '../../types/CharacterTypes';
 import {
@@ -120,14 +120,14 @@ export class DamageCalculator {
     // ─── 伤害修正与护甲结算 ──────────────────────────────
 
     /**
-     * 完整伤害管线：基础伤害 → 灼烧加成 → 乘算Buff → 加算Buff → 易伤 → 减伤 → 护甲 → 扣血。
+     * 完整伤害管线：基础伤害 → 灼烧增伤 → 乘算Buff → 加算Buff → 易伤 → 减伤 → 护甲 → 扣血。
      * 会直接修改 receiver 的 armor 和 currentHp。
      *
      * @param baseDamage  已计算好的基础伤害（来自 evaluateBaseDamage）
      * @param caster      施法者（用于读取 Buff）
      * @param receiver    承受者（直接扣除护甲/HP）
-     * @param cardFaction 来源卡牌的流派（火系享受灼烧加成）
-     * @param enemyBurnStacks 敌方灼烧层数（灼烧加成始终基于敌方层数，即使自伤也用敌方值）
+     * @param enemyBurnStacks 目标灼烧层数（每层 +burnDamagePercentPerStack 伤害）
+     * @param burnPercent 每层灼烧的增伤比例（来自 BattleConfig.burnDamagePercentPerStack）
      * @param ignoreArmor 是否无视护甲（毒药/自伤）
      *
      * @see battle-base.md §6.2, §6.3
@@ -136,14 +136,15 @@ export class DamageCalculator {
         baseDamage: number,
         caster: RuntimeCombatant,
         receiver: RuntimeCombatant,
-        cardFaction: Faction,
         enemyBurnStacks: number,
+        burnPercent: number,
         ignoreArmor: boolean,
     ): DamageResult {
         let dmg = baseDamage;
 
-        if (cardFaction === Faction.FIRE) {
-            dmg += enemyBurnStacks;
+        // 灼烧增伤：所有攻击对灼烧目标伤害 ×(1 + 层数 × 百分比)
+        if (enemyBurnStacks > 0 && burnPercent > 0) {
+            dmg = Math.floor(dmg * (1 + enemyBurnStacks * burnPercent));
         }
 
         const damageMult = 1.0 + DamageCalculator.sumBuff(caster, BuffType.DAMAGE_MULTIPLY);

@@ -110,6 +110,8 @@ export interface BattleConfig {
     poisonDecayPerCycle: number;
     /** MP 每周期回复量（不超上限） */
     mpRecoveryPerCycle: number;
+    /** 灼烧增伤系数 —— 每层灼烧使目标受到的伤害 +N%（0.01 = 1%/层） */
+    burnDamagePercentPerStack: number;
     /** 加时起始周期 —— 超过此周期后每周期双方受递增伤害 */
     overtimeStartCycle: number;
     /** 强制结束周期 —— 超过此周期判平局，双方不获奖励 */
@@ -123,6 +125,7 @@ export const DEFAULT_BATTLE_CONFIG: BattleConfig = {
     frostPerSpeedReduction: 3,   // 每 3 层霜蚀 = -1 speed
     frostDecayPerCycle: 2,       // 每周期 -2 层（蓄力阶段衰减，冻结期间不衰减）
     poisonDecayPerCycle: 1,      // 每周期 -1 层
+    burnDamagePercentPerStack: 0.01, // 每层灼烧 +1% 伤害（适用于所有攻击）
     mpRecoveryPerCycle: 1,       // 每周期 +1 MP
     overtimeStartCycle: 20,      // 第 20 周期开始加时（SPD10约20次行动）
     forceEndCycle: 30,           // 第 30 周期强制结束

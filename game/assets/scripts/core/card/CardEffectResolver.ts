@@ -189,9 +189,11 @@ export class CardEffectResolver {
             baseDamage += getEffectiveAttack(this.ctx.caster);
         }
 
+        const burnPercent = this.getEffectiveBurnPercent();
+
         const result = DamageCalculator.applyDamage(
             baseDamage, this.ctx.caster, receiver,
-            this.ctx.cardDef.faction, this.ctx.target.burnStacks,
+            this.ctx.target.burnStacks, burnPercent,
             dmg.ignoreArmor ?? false,
         );
 
@@ -389,6 +391,25 @@ export class CardEffectResolver {
                 return { type: EffectResultType.SPECIAL, value: result.actualHpDamage, detail: 'DETONATE' };
             }
 
+            case 'DETONATE_BURN': {
+                const multiplier = (specialEff.params['multiplier'] as number) ?? 1.0;
+                const stacks = target.burnStacks;
+                target.burnStacks = 0;
+                const rawDmg = Math.floor(stacks * multiplier);
+                if (rawDmg > 0) {
+                    const dmgResult = DamageCalculator.applyRawDamage(rawDmg, target, false);
+                    return { type: EffectResultType.SPECIAL, value: dmgResult.actualHpDamage, detail: 'DETONATE_BURN' };
+                }
+                return { type: EffectResultType.SPECIAL, value: 0, detail: 'DETONATE_BURN' };
+            }
+
+            case 'PARTIAL_DETONATE': {
+                const consumeStacks = (specialEff.params['consumeStacks'] as number) ?? 5;
+                const consumed = Math.min(target.burnStacks, consumeStacks);
+                target.burnStacks -= consumed;
+                return { type: EffectResultType.SPECIAL, value: consumed, detail: 'PARTIAL_DETONATE' };
+            }
+
             case 'FROST_SCALING': {
                 const perStack = (specialEff.params['perStack'] as number) ?? 0.5;
                 const bonusDmg = Math.floor(target.frostStacks * perStack);
@@ -539,6 +560,21 @@ export class CardEffectResolver {
             p => p.cardId === 'ice_eternal_winter',
         );
         return hasEternalWinter ? 2 : 1;
+    }
+
+    /**
+     * 获取当前攻击的灼烧增伤系数。
+     * 基础值来自 BattleConfig，激活永燃之心时翻倍。
+     */
+    private getEffectiveBurnPercent(): number {
+        let percent = this.ctx.config.burnDamagePercentPerStack;
+        const hasEternalFlame = this.ctx.caster.activePowers.some(
+            p => p.cardId === 'fire_eternal_flame',
+        );
+        if (hasEternalFlame) {
+            percent *= 2;
+        }
+        return percent;
     }
 
     // ─── 工具方法 ──────────────────────────────────────
