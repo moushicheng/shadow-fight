@@ -230,7 +230,7 @@ shadow-fight/
 | 3.1  | 通用卡牌设计（4-6 张）✅        | `data/cards/common.ts`    | Phase 0 |
 | 3.2  | 冰系卡牌设计（8-12 张）✅      | `data/cards/ice.ts`       | Phase 0 |
 | 3.3  | 火系卡牌设计（8-12 张）✅      | `data/cards/fire.ts`      | Phase 0 |
-| 3.4  | 毒系卡牌设计（8-12 张）       | `data/cards/poison.ts`    | Phase 0 |
+| 3.4  | 毒系卡牌设计（8-12 张）✅      | `data/cards/poison.ts`    | Phase 0 |
 | 3.5  | 咒术师卡牌设计（8-12 张）     | `data/cards/hex.ts`       | Phase 0 |
 | 3.6  | 血族卡牌设计（8-12 张）       | `data/cards/blood.ts`     | Phase 0 |
 | 3.7  | 刺客卡牌设计（8-12 张）       | `data/cards/assassin.ts`  | Phase 0 |
