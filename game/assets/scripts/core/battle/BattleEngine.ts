@@ -299,6 +299,7 @@ export class BattleEngine {
         const ctx: ResolveContext = {
             caster: combatant,
             target: enemy.combatant,
+            casterDeck: deck,
             targetDeck: enemy.deck,
             cardDef,
             rng: this.rng,
@@ -373,6 +374,7 @@ export class BattleEngine {
             const ctx: ResolveContext = {
                 caster: combatant,
                 target: enemy.combatant,
+                casterDeck: fighter.deck,
                 targetDeck: enemy.deck,
                 cardDef,
                 rng: this.rng,

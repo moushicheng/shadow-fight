@@ -46,7 +46,7 @@ export function calcMaxMp(mana: number): number {
 }
 
 export function calcAttack(str: number): number {
-    return str;
+    return Math.max(str - 10, 0);
 }
 
 export function calcBaseSpeed(spd: number): number {

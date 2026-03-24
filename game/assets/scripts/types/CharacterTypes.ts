@@ -6,7 +6,7 @@ import { BuffType } from './Enums';
  * 可被事件/遗物永久修改（修改存入 RunState.baseProperty）。
  */
 export interface PlayerBaseProperty {
-    /** 力量 —— 映射 attack，影响伤害倍率 */
+    /** 力量 —— 攻击加成 = Max(STR - 10, 0)，自动叠加到攻击类卡牌 */
     STR: number;
     /** 体质 —— 映射 HP = CON × 15 + 30 */
     CON: number;
@@ -28,7 +28,7 @@ export interface RuntimeCombatant {
     currentHp: number;
     /** 最大 HP = CON × 15 + 30 */
     maxHp: number;
-    /** 攻击力 —— 基础 = STR，可被事件/遗物/汲取修改 */
+    /** 攻击加成 —— 基础 = Max(STR - 10, 0)，自动叠加到攻击类卡牌伤害 */
     attack: number;
     /** 基础速度 —— 含事件/遗物的永久修改 */
     baseSpeed: number;

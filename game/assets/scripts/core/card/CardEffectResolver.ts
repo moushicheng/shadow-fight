@@ -1,13 +1,13 @@
 import {
     StatusType, ConditionType, ConditionOperator,
-    CurseInsertPosition, DrainAttribute, BuffType, EffectTarget,
+    CurseInsertPosition, DrainAttribute, BuffType, EffectTarget, CardType,
 } from '../../types/Enums';
 import {
     CardEffect, EffectCondition, DamageEffect, CardDef, CardInstance,
 } from '../../types/CardTypes';
 import { RuntimeCombatant } from '../../types/CharacterTypes';
 import { BattleConfig } from '../../types/BattleTypes';
-import { getHpPercent, healHp, recoverMp, gainArmor } from '../character/EffectiveStats';
+import { getHpPercent, getEffectiveAttack, healHp, recoverMp, gainArmor } from '../character/EffectiveStats';
 import { DamageCalculator } from '../battle/DamageCalculator';
 import { StatusManager } from '../battle/StatusManager';
 import { SeededRandom } from '../utils/SeededRandom';
@@ -42,6 +42,8 @@ export interface ResolveContext {
     caster: RuntimeCombatant;
     /** 效果承受者 */
     target: RuntimeCombatant;
+    /** 施法者的有序卡组（洁净等自身卡组操作用） */
+    casterDeck: CardInstance[];
     /** 目标的有序卡组（诅咒插入用） */
     targetDeck: CardInstance[];
     /** 触发此效果的卡牌定义 */
@@ -58,6 +60,8 @@ export interface ResolveContext {
     cardsPlayedThisTurn: number;
     /** 本回合已消耗 MP（用于条件判断） */
     mpSpentThisTurn: number;
+    /** 可用卡牌 ID 池（变化效果用，基于当前流派池生成） */
+    cardPool?: string[];
 }
 
 // ─── 主类 ──────────────────────────────────────────────
@@ -179,7 +183,12 @@ export class CardEffectResolver {
         const formulaVars = DamageCalculator.buildFormulaVars(this.ctx.caster, this.ctx.target, {
             mpSpentThisTurn: this.ctx.mpSpentThisTurn,
         });
-        const baseDamage = DamageCalculator.evaluateBaseDamage(dmg, this.ctx.caster, formulaVars);
+        let baseDamage = DamageCalculator.evaluateBaseDamage(dmg, this.ctx.caster, formulaVars);
+
+        if (this.ctx.cardDef.cardType === CardType.ATTACK) {
+            baseDamage += getEffectiveAttack(this.ctx.caster);
+        }
+
         const result = DamageCalculator.applyDamage(
             baseDamage, this.ctx.caster, receiver,
             this.ctx.cardDef.faction, this.ctx.target.burnStacks,
@@ -363,9 +372,100 @@ export class CardEffectResolver {
                 return { type: EffectResultType.SPECIAL, value: maxAmount, detail: 'CONVERT_ATTRIBUTE' };
             }
 
+            case 'REMOVE_NEXT_CARDS': {
+                const count = (specialEff.params['count'] as number) ?? 3;
+                const removed = CardEffectResolver.removeNextCards(
+                    caster, this.ctx.casterDeck, count,
+                );
+                return { type: EffectResultType.SPECIAL, value: removed, detail: 'REMOVE_NEXT_CARDS' };
+            }
+
+            case 'TRANSFORM_CARDS': {
+                const transformCount = (specialEff.params['count'] as number) ?? 1;
+                const upgraded = (specialEff.params['upgraded'] as boolean) ?? false;
+                const transformed = CardEffectResolver.transformCards(
+                    caster, this.ctx.casterDeck, this.ctx.cardPool ?? [],
+                    transformCount, upgraded, this.ctx.rng,
+                );
+                return { type: EffectResultType.SPECIAL, value: transformed, detail: 'TRANSFORM_CARDS' };
+            }
+
             default:
                 return { type: EffectResultType.SPECIAL, detail: specialEff.type };
         }
+    }
+
+    /**
+     * 从施法者卡组中移除当前指针之后的 N 张卡。
+     * 处理循环卡组的 wrap-around，保证至少保留 1 张卡。
+     * 返回实际移除的张数。
+     */
+    private static removeNextCards(
+        caster: RuntimeCombatant, deck: CardInstance[], count: number,
+    ): number {
+        let removed = 0;
+        for (let i = 0; i < count; i++) {
+            if (deck.length <= 1) break;
+
+            const removeIdx = (caster.deckIndex + 1) % deck.length;
+            deck.splice(removeIdx, 1);
+            removed++;
+
+            if (removeIdx <= caster.deckIndex) {
+                caster.deckIndex--;
+            }
+            if (caster.deckIndex >= deck.length) {
+                caster.deckIndex = deck.length > 0 ? deck.length - 1 : 0;
+            }
+        }
+        return removed;
+    }
+
+    /**
+     * 变化卡组中的卡牌。
+     * count = -1 表示变化所有卡牌，正数则随机选 N 张变化。
+     * 跳过当前正在打出的卡牌（即触发变化的那张）。
+     * 返回实际变化的张数。
+     */
+    private static transformCards(
+        caster: RuntimeCombatant, deck: CardInstance[], cardPool: string[],
+        count: number, upgraded: boolean, rng: SeededRandom,
+    ): number {
+        if (cardPool.length === 0 || deck.length === 0) return 0;
+
+        const currentIdx = caster.deckIndex;
+        const transformAll = count === -1;
+        let indices: number[];
+
+        if (transformAll) {
+            indices = [];
+            for (let i = 0; i < deck.length; i++) {
+                if (i !== currentIdx) indices.push(i);
+            }
+        } else {
+            const candidates: number[] = [];
+            for (let i = 0; i < deck.length; i++) {
+                if (i !== currentIdx) candidates.push(i);
+            }
+            indices = [];
+            const n = Math.min(count, candidates.length);
+            for (let i = 0; i < n; i++) {
+                const pick = rng.nextInt(0, candidates.length);
+                indices.push(candidates[pick]);
+                candidates.splice(pick, 1);
+            }
+        }
+
+        for (const idx of indices) {
+            const newDefId = cardPool[rng.nextInt(0, cardPool.length)];
+            deck[idx] = {
+                defId: newDefId,
+                upgraded,
+                upgradePath: upgraded ? 'enhance' : undefined,
+            };
+        }
+
+        return indices.length;
     }
 
     private static convertAttribute(

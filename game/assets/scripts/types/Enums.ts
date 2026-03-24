@@ -82,6 +82,8 @@ export enum CardTag {
     CHARGE = 'CHARGE',
     /** 工具 —— 资源管理类功能牌（魔力瓶、聚气） */
     UTILITY = 'UTILITY',
+    /** 变化 —— 将卡组中的卡牌随机替换为其他卡牌 */
+    TRANSFORM = 'TRANSFORM',
 }
 
 /**
@@ -108,7 +110,7 @@ export enum PowerTrigger {
  * 每局开始随机分配 40 点到四维，SPD 下限为 3。
  */
 export enum Attribute {
-    /** 力量 —— 映射为 attack，影响物理伤害倍率 */
+    /** 力量 —— 攻击加成 = Max(STR - 10, 0)，自动叠加到攻击类卡牌 */
     STR = 'STR',
     /** 体质 —— 映射为 HP = CON × 15 + 30 */
     CON = 'CON',
